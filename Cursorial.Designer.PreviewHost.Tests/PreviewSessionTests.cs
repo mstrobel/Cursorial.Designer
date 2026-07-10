@@ -376,6 +376,32 @@ public class PreviewSessionTests : IDisposable
         Assert.DoesNotContain(_events, e => e is ErrorEvent);
     }
 
+    [Fact]
+    public void Alt_down_shows_access_key_underlines_until_alt_up()
+    {
+        Initialize();
+        Load($"""<StackPanel {Xmlns}><Button Content="_Cancel" HorizontalAlignment="Left"/></StackPanel>""");
+
+        // The theme may use underline of its own, so assert on the *count* of underlined cells:
+        // the access-key cue must add underlines on Alt down and remove them on Alt up.
+        static int UnderlinedCells(FrameEvent frame)
+            => frame.Lines.Sum(runs => runs.Where(r => frame.Styles[r.StyleIndex].Attrs?.Contains("underline") == true).Sum(r => r.Width));
+
+        var idle = UnderlinedCells(LastFrame());
+
+        _session.Execute(new KeyCommand { Key = "Alt", Kind = "down" });
+        Assert.True(UnderlinedCells(LastFrame()) > idle); // the access-key cue underlines the C
+
+        // WPF-style semantics: releasing Alt without a letter LATCHES the cue (menu mode) …
+        _session.Execute(new KeyCommand { Key = "Alt", Kind = "up" });
+        Assert.True(UnderlinedCells(LastFrame()) > idle);
+
+        // … and Escape exits it.
+        _session.Execute(new KeyCommand { Key = "Escape" });
+        Assert.Equal(idle, UnderlinedCells(LastFrame()));
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+    }
+
     private static string FrameStyleSignature(FrameEvent frame)
         => string.Join('|', frame.Lines.Select(runs => string.Join(',', runs.Select(r => $"{r.Text}:{frame.Styles[r.StyleIndex].Fg}/{frame.Styles[r.StyleIndex].Bg}"))));
 

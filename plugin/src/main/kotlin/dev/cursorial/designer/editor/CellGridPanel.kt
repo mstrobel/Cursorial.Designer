@@ -66,8 +66,9 @@ class CellGridPanel : JComponent() {
             override fun keyPressed(e: KeyEvent) {
                 val modifiers = modifiersOf(e)
                 // Named keys forward as real down/up transitions: holding Space keeps the
-                // focused button pressed, and Swing auto-repeat becomes a key repeat downstream.
-                namedKey(e.keyCode)?.let { named ->
+                // focused button pressed, Swing auto-repeat becomes a key repeat downstream,
+                // and bare modifier presses drive the access-key display (Alt gate).
+                namedKey(e)?.let { named ->
                     keyListener?.invoke(named, modifiers, "down")
                     e.consume()
                     return
@@ -88,7 +89,7 @@ class CellGridPanel : JComponent() {
             }
 
             override fun keyReleased(e: KeyEvent) {
-                val named = namedKey(e.keyCode) ?: return
+                val named = namedKey(e) ?: return
                 keyListener?.invoke(named, modifiersOf(e), "up")
                 e.consume()
             }
@@ -331,24 +332,34 @@ class CellGridPanel : JComponent() {
     }
 
     /** Protocol names for non-printable keys (docs/protocol.md); null = not a named key. */
-    private fun namedKey(code: Int): String? = when (code) {
-        KeyEvent.VK_ENTER -> "Enter"
-        KeyEvent.VK_TAB -> "Tab"
-        KeyEvent.VK_ESCAPE -> "Escape"
-        KeyEvent.VK_SPACE -> "Space"
-        KeyEvent.VK_UP -> "Up"
-        KeyEvent.VK_DOWN -> "Down"
-        KeyEvent.VK_LEFT -> "Left"
-        KeyEvent.VK_RIGHT -> "Right"
-        KeyEvent.VK_BACK_SPACE -> "Backspace"
-        KeyEvent.VK_DELETE -> "Delete"
-        KeyEvent.VK_INSERT -> "Insert"
-        KeyEvent.VK_HOME -> "Home"
-        KeyEvent.VK_END -> "End"
-        KeyEvent.VK_PAGE_UP -> "PageUp"
-        KeyEvent.VK_PAGE_DOWN -> "PageDown"
-        in KeyEvent.VK_F1..KeyEvent.VK_F12 -> "F${code - KeyEvent.VK_F1 + 1}"
-        else -> null
+    private fun namedKey(e: KeyEvent): String? {
+        val right = e.keyLocation == KeyEvent.KEY_LOCATION_RIGHT
+        return when (val code = e.keyCode) {
+            KeyEvent.VK_ENTER -> "Enter"
+            KeyEvent.VK_TAB -> "Tab"
+            KeyEvent.VK_ESCAPE -> "Escape"
+            KeyEvent.VK_SPACE -> "Space"
+            KeyEvent.VK_UP -> "Up"
+            KeyEvent.VK_DOWN -> "Down"
+            KeyEvent.VK_LEFT -> "Left"
+            KeyEvent.VK_RIGHT -> "Right"
+            KeyEvent.VK_BACK_SPACE -> "Backspace"
+            KeyEvent.VK_DELETE -> "Delete"
+            KeyEvent.VK_INSERT -> "Insert"
+            KeyEvent.VK_HOME -> "Home"
+            KeyEvent.VK_END -> "End"
+            KeyEvent.VK_PAGE_UP -> "PageUp"
+            KeyEvent.VK_PAGE_DOWN -> "PageDown"
+            // Modifier keys are real down/up-forwarded keys — the preview's access-key
+            // display (Alt gate) depends on seeing them.
+            KeyEvent.VK_ALT -> if (right) "RightAlt" else "Alt"
+            KeyEvent.VK_ALT_GRAPH -> "AltGr"
+            KeyEvent.VK_CONTROL -> if (right) "RightCtrl" else "Ctrl"
+            KeyEvent.VK_SHIFT -> if (right) "RightShift" else "Shift"
+            KeyEvent.VK_META -> if (right) "RightMeta" else "Meta"
+            in KeyEvent.VK_F1..KeyEvent.VK_F12 -> "F${code - KeyEvent.VK_F1 + 1}"
+            else -> null
+        }
     }
 
     private data class CellMetrics(

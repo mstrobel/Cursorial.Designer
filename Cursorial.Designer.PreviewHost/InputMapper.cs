@@ -34,6 +34,19 @@ internal static class InputMapper
             case "end": mapped = Key.End; return true;
             case "pageup": mapped = Key.PageUp; return true;
             case "pagedown": mapped = Key.PageDown; return true;
+
+            // Modifier keys are real keys: the access-key display gates on Alt down/up, so they
+            // must be sendable as named keys (with kind down/up), not only as modifier flags.
+            case "alt" or "leftalt": mapped = Key.LeftAlt; return true;
+            case "rightalt" or "altgr": mapped = Key.RightAlt; return true;
+            case "ctrl" or "control" or "leftctrl" or "leftcontrol": mapped = Key.LeftControl; return true;
+            case "rightctrl" or "rightcontrol": mapped = Key.RightControl; return true;
+            case "shift" or "leftshift": mapped = Key.LeftShift; return true;
+            case "rightshift": mapped = Key.RightShift; return true;
+            case "meta" or "leftmeta": mapped = Key.LeftMeta; return true;
+            case "rightmeta": mapped = Key.RightMeta; return true;
+            case "super" or "cmd" or "leftsuper": mapped = Key.LeftSuper; return true;
+            case "rightsuper": mapped = Key.RightSuper; return true;
         }
 
         if (key is ['f' or 'F', .. var digits] && int.TryParse(digits, out var f) && f is >= 1 and <= 24)

@@ -1,0 +1,75 @@
+<DockPanel xmlns="https://cursorial.dev/ui"
+           xmlns:x="https://cursorial.dev/xaml"
+           xmlns:bars="https://cursorial.dev/ui/bars"
+           LastChildFill="True">
+  <Border DockPanel.Dock="Top" Background="{DynamicResource {x:Static ThemeKeys.ElevationHighest}}" Padding="1,0">
+   <StackPanel Orientation="Vertical">
+     <TextBlock Text="{Binding Title}" Foreground="{DynamicResource {x:Static ThemeKeys.TextDimBrush}}" />
+     <TextBlock Text="{Binding Summary}" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
+   </StackPanel>
+  </Border>
+
+  <bars:Ribbon DockPanel.Dock="Top" Margin="2,1">
+  <bars:RibbonTab IsFileTab="True">
+     <bars:RibbonTab.Header>
+       <StackPanel Orientation="Horizontal">
+         <Icon Glyph="&#xf035c;" Text="≡" Margin="0,0,1,0" />
+         <AccessTextPresenter Text="_File" />
+       </StackPanel>
+     </bars:RibbonTab.Header>
+   </bars:RibbonTab>
+   <bars:RibbonTab Header="_Home">
+     <bars:RibbonGroup Header="Clipboard" HasDialogLauncher="True">
+       <bars:BarButton Content="Paste" bars:Ribbon.ButtonSize="Large" Icon="{Icon Glyph='&#x000F0192;', Emoji='📋', Text='▤'}" />
+       <bars:RibbonControlGroup >
+         <bars:BarButton Content="Cut"  Icon="{Icon Glyph='&#x000F0190;', Emoji='🗒', Text='✁'}"/>
+         <bars:BarButton Content="Copy" Icon="{Icon Glyph='&#x000F018F;', Emoji='📋', Text='⧉'}" />
+       </bars:RibbonControlGroup>
+     </bars:RibbonGroup>
+     <bars:RibbonGroup Header="Format">
+       <bars:RibbonControlGroup>
+         <bars:BarToggleButton Content="Bold"   Icon="{Icon Glyph='&#x000F0264;', Emoji='🅱', Text='✱'}"  />
+         <bars:BarToggleButton Content="Italic" Icon="{Icon Glyph='&#x000F0277;', Emoji='✍️', Text='⟋'}" />
+         <bars:BarToggleButton Content="Code"   Icon="{Icon Glyph='&#x000F0174;', Emoji='💻', Text='{'}" />
+         <bars:BarToggleButton Content="Left"   Icon="{Icon Glyph='&#x000F0262;', Emoji='⬅️', Text='⇤'}" bars:RibbonControlGroup.RowBreak="True" />
+         <bars:BarToggleButton Content="Center" Icon="{Icon Glyph='&#x000F0260;', Emoji='↔️', Text='↹'}" />
+         <bars:BarToggleButton Content="Right"  Icon="{Icon Glyph='&#x000F0263;', Emoji='➡️', Text='⇥'}" />
+       </bars:RibbonControlGroup>
+     </bars:RibbonGroup>
+     <bars:RibbonGroup Header="Editing">
+       <bars:BarButton Content="Find" bars:Ribbon.ButtonSize="Large" />
+     </bars:RibbonGroup>
+   </bars:RibbonTab>
+   <bars:RibbonTab Header="Inse_rt">
+     <bars:RibbonGroup Header="History">
+       <bars:BarButton Content="Undo" />
+       <bars:BarButton Content="Redo" />
+       <bars:BarButton Content="Settings" />
+     </bars:RibbonGroup>
+   </bars:RibbonTab>
+   
+   <!-- P3a: a CONTEXTUAL tab — purple-tinted, shown only when a "table" is selected. Its Visibility binds to
+        the VM; when it's the active tab and hides, the Ribbon falls back to the first content tab (no blank band). -->
+   <bars:RibbonTab Header="Table" IsContextual="True"
+                   Visibility="{Binding TableToolsVisibility}">
+     <bars:RibbonGroup Header="Cells">
+       <bars:BarButton Content="Merge Cells" bars:Ribbon.ButtonSize="Large" />
+       <bars:BarButton Content="Split Cells" />
+     </bars:RibbonGroup>
+     <bars:RibbonGroup Header="Table">
+       <bars:BarButton Content="Delete Table" />
+     </bars:RibbonGroup>
+   </bars:RibbonTab>
+   
+  </bars:Ribbon>
+
+  <Border Padding="2,1" Background="{DynamicResource {x:Static ThemeKeys.ElevationDesktop}}">
+   <StackPanel Orientation="Vertical" VerticalAlignment="Center" HorizontalAlignment="Center">
+     <TextBlock Text="{Binding Status}" HorizontalAlignment="Center"
+                Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
+     <!-- Toggle the contextual tab: check to select a "table" (the purple Table tab appears), uncheck to hide it. -->
+     <CheckBox Content="_Table selected (show the contextual Table tab)" Margin="0,1,0,0"
+               IsChecked="{Binding TableSelected, Mode=TwoWay}" HorizontalAlignment="Center" />
+   </StackPanel>
+  </Border>
+</DockPanel>

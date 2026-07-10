@@ -38,7 +38,11 @@ the session survives errors and keeps rendering the previous content.
 ```
 
 Key names: a single printable character, or `Enter`, `Tab`, `Escape`, `Up`, `Down`, `Left`,
-`Right`, `Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, `F1`–`F12`, `Space`.
+`Right`, `Backspace`, `Delete`, `Insert`, `Home`, `End`, `PageUp`, `PageDown`, `F1`–`F12`,
+`Space` — plus the modifier keys as real keys: `Alt`, `Ctrl`, `Shift`, `Meta`, `Super`/`Cmd`,
+`AltGr`, and `Right`-prefixed variants (`RightAlt`, …). Modifier keys matter as down/up
+transitions: the access-key display gates on Alt down (cue shown), latches on Alt up, and
+exits on Escape — WPF-style.
 
 ## Events (host → plugin)
 
