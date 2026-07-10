@@ -182,6 +182,46 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void HitTest_carries_source_positions_for_document_elements()
+    {
+        Initialize();
+        Load($"""
+              <StackPanel {Xmlns}>
+                  <TextBlock x:Name="First" Text="line two"/>
+                  <Button Content="line three" HorizontalAlignment="Left"/>
+              </StackPanel>
+              """, sourceUri: "file:///test/View.xaml");
+
+        // The TextBlock renders on the first row; its tag sits on line 2 of the document.
+        _session.Execute(new HitTestCommand { Id = 41, Column = 1, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+
+        var text = hit.Elements[0];
+        Assert.Equal("TextBlock", text.ElementType);
+        Assert.Equal(2, text.Line);
+        Assert.True(text.Column > 1);
+        Assert.Equal("file:///test/View.xaml", text.SourceUri);
+        Assert.True(text.InDocument);
+
+        // The chain's outermost element is the root StackPanel — line 1.
+        var root = hit.Elements[^1];
+        Assert.Equal("StackPanel", root.ElementType);
+        Assert.Equal(1, root.Line);
+        Assert.True(root.InDocument);
+
+        // Clicking the Button hits its template internals first: those come from the code-first
+        // theme (no XAML span), so they carry no source info — the provenance ladder's fallback
+        // case — while the Button itself (further up the chain) is document-owned.
+        _session.Execute(new HitTestCommand { Id = 42, Column = 3, Row = 1 });
+        var buttonHit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var button = Assert.Single(buttonHit.Elements, e => e.ElementType == "Button");
+        Assert.Equal(3, button.Line);
+        Assert.True(button.InDocument);
+        if (buttonHit.Elements[0].ElementType != "Button")
+            Assert.Null(buttonHit.Elements[0].InDocument); // template part: untracked span
+    }
+
+    [Fact]
     public void GetProperties_reports_set_values_with_provenance()
     {
         Initialize();

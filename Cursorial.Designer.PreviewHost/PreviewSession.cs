@@ -23,7 +23,11 @@ namespace Cursorial.Designer.PreviewHost;
 internal sealed class PreviewSession : IDisposable
 {
     private readonly Action<PreviewEvent> _emit;
-    private readonly XamlLoader _loader = new(new XamlLoaderOptions { DiagnosticMode = XamlDiagnosticMode.CollectAll });
+    private readonly XamlLoader _loader = new(new XamlLoaderOptions
+    {
+        DiagnosticMode = XamlDiagnosticMode.CollectAll,
+        TrackSourceInfo = true, // element→source navigation reads XamlSourceRegistry at hit-test time
+    });
     private readonly HashSet<string> _registeredAssemblies = new(StringComparer.Ordinal);
 
     // Element identity for hit-test/property round-trips. Ids are handed out lazily as elements
@@ -38,6 +42,11 @@ internal sealed class PreviewSession : IDisposable
 
     private UITestHost? _host;
     private StyleQuantizer? _quantizer;
+
+    // The URI of the currently loaded document — the reference point for ElementRef.InDocument
+    // (an element span from this URI supports direct caret sync; a foreign span is template
+    // content from another document).
+    private Uri? _documentUri;
 
     // The preview chrome: loaded roots are hosted in a Border whose background is the theme's
     // desktop elevation, because panels have no background fill of their own and a designed root
@@ -279,6 +288,7 @@ internal sealed class PreviewSession : IDisposable
 
         _elementsById.Clear();
         _idsByElement.Clear();
+        _documentUri = sourceUri;
 
         var previous = _container!.Child;
         _container.Child = element;
@@ -458,6 +468,7 @@ internal sealed class PreviewSession : IDisposable
         for (var element = hit; element is not null && !ReferenceEquals(element, _container); element = element.VisualParent)
         {
             var (column, row) = element.TranslateToScreen(0, 0);
+            var source = XamlSourceRegistry.TryGetSourceInfo(element);
             elements.Add(new ElementRef
             {
                 ElementId = IdFor(element),
@@ -470,6 +481,10 @@ internal sealed class PreviewSession : IDisposable
                     Columns = element.Bounds.Columns,
                     Rows = element.Bounds.Rows,
                 },
+                SourceUri = source?.Source?.ToString(),
+                Line = source?.Line,
+                Column = source?.Column,
+                InDocument = source is null ? null : source.Source is not null && source.Source == _documentUri,
             });
         }
 

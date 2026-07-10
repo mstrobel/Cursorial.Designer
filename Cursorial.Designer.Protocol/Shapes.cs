@@ -98,6 +98,21 @@ public sealed class ElementRef
     public string? Name { get; init; }
 
     public required CellRectInfo Bounds { get; init; }
+
+    /// <summary>The URI of the XAML document the element was instantiated from, when tracked.</summary>
+    public string? SourceUri { get; init; }
+
+    /// <summary>1-based line of the element's tag in <see cref="SourceUri"/>, when tracked.</summary>
+    public int? Line { get; init; }
+
+    /// <summary>1-based column of the element's tag, when tracked.</summary>
+    public int? Column { get; init; }
+
+    /// <summary>
+    /// True when the span comes from the currently loaded document (direct caret sync is valid);
+    /// false for foreign spans (e.g. a template's defining document); absent when untracked.
+    /// </summary>
+    public bool? InDocument { get; init; }
 }
 
 /// <summary>One row of a property-grid answer: a property that currently contributes a non-default value.</summary>

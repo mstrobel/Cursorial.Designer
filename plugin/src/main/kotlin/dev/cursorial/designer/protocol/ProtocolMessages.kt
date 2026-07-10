@@ -211,6 +211,14 @@ data class HitTestElement(
     val elementType: String?,
     val name: String?,
     val bounds: CellRect?,
+    /** The XAML document the element came from, when the host tracked sources. */
+    val sourceUri: String? = null,
+    /** 1-based tag line in [sourceUri]. */
+    val line: Int? = null,
+    /** 1-based tag column in [sourceUri]. */
+    val column: Int? = null,
+    /** True = span is from the loaded document (direct caret sync); false = foreign (template). */
+    val inDocument: Boolean? = null,
 )
 
 /** A rectangle in cell coordinates. */

@@ -45,7 +45,7 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
 
     override fun createEditor(project: Project, file: VirtualFile): FileEditor {
         val textEditor = TextEditorProvider.getInstance().createEditor(project, file) as TextEditor
-        val previewEditor = CursorialPreviewEditor(project, file)
+        val previewEditor = CursorialPreviewEditor(project, file, textEditor)
         // TextEditorWithPreview disposes both child editors on its own disposal.
         return TextEditorWithPreview(textEditor, previewEditor, "Cursorial Designer")
     }
