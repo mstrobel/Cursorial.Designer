@@ -114,16 +114,25 @@ class CursorialPreviewEditor(
     }.apply {
         isRootVisible = false
         showsRootHandles = true
-        cellRenderer = object : javax.swing.tree.DefaultTreeCellRenderer() {
-            override fun getTreeCellRendererComponent(
+        // ColoredTreeCellRenderer over DefaultTreeCellRenderer: non-opaque and theme-correct (no
+        // stray label-background blocks on dark themes), with two-tone rows — muted name, regular
+        // value — in the InspectorDemo idiom. Color-like values get an inline swatch chip.
+        cellRenderer = object : com.intellij.ui.ColoredTreeCellRenderer() {
+            override fun customizeCellRenderer(
                 tree: javax.swing.JTree, value: Any?, selected: Boolean, expanded: Boolean,
                 leaf: Boolean, row: Int, hasFocus: Boolean,
-            ): java.awt.Component {
-                super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
-                val data = (value as? javax.swing.tree.DefaultMutableTreeNode)?.userObject as? PropertyNode
-                // Color-like values get an inline swatch; everything else drops the stock icons.
-                icon = data?.swatch?.let { com.intellij.util.ui.ColorIcon(12, it) }
-                return this
+            ) {
+                val data = (value as? javax.swing.tree.DefaultMutableTreeNode)?.userObject as? PropertyNode ?: return
+                icon = data.swatch?.let { com.intellij.util.ui.ColorIcon(12, it) }
+
+                val text = data.toString()
+                val separator = text.indexOf(": ")
+                if (separator > 0) {
+                    append(text.substring(0, separator + 2), com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    append(text.substring(separator + 2), com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                } else {
+                    append(text, com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                }
             }
         }
         // Top-level property nodes stay collapsed by default; expanding one auto-expands its
