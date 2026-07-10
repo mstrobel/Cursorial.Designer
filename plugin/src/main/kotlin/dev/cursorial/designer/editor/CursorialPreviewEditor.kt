@@ -34,6 +34,7 @@ import dev.cursorial.designer.protocol.ResizeCommand
 import dev.cursorial.designer.protocol.ThemeBase
 import dev.cursorial.designer.protocol.UnknownEvent
 import dev.cursorial.designer.previewer.PreviewHostProcess
+import dev.cursorial.designer.previewer.UserAssemblyLocator
 import dev.cursorial.designer.settings.CursorialDesignerSettings
 import java.awt.BorderLayout
 import java.beans.PropertyChangeListener
@@ -161,12 +162,15 @@ class CursorialPreviewEditor(
         val process = hostProcess ?: return
         val document = document ?: return
         val xaml = ReadAction.compute<String, RuntimeException> { document.text }
+
+        val located = UserAssemblyLocator.locate(file)
+        located.problem?.let { statusLabel.text = it }
+
         process.sendCommand(
             LoadXamlCommand(
                 xaml = xaml,
                 sourceUri = file.url,
-                // TODO: feed user-project assemblies once the host can load custom controls.
-                assemblies = emptyList(),
+                assemblies = located.assemblies,
             ),
         )
     }
