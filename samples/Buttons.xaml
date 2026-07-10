@@ -29,52 +29,40 @@
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
     
-    <Button        Grid.Column="0" Grid.Row="0" Content="_Cancel" MinWidth="10"
-                   Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button        Grid.Column="0" Grid.Row="0" Content="_Cancel" MinWidth="10" />
     <TextBlock     Grid.Column="2" Grid.Row="0" Text="normal" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button        Grid.Column="0" Grid.Row="2" Content="_Accept" MinWidth="10" IsDefault="true"
-                   Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button        Grid.Column="0" Grid.Row="2" Content="_Accept" MinWidth="10" IsDefault="true" />
     <TextBlock     Grid.Column="2" Grid.Row="2" Text=":default" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button        Grid.Column="0" Grid.Row="4" Content="Disabled" MinWidth="10" IsEnabled="false"
-                   Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button        Grid.Column="0" Grid.Row="4" Content="Disabled" MinWidth="10" IsEnabled="false" />
     <TextBlock     Grid.Column="2" Grid.Row="4" Text=":disabled" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <ToggleButton Grid.Column="0" Grid.Row="6" Content="To_ggle" MinWidth="10" Classes="toggle-colors"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <ToggleButton Grid.Column="0" Grid.Row="6" Content="To_ggle" MinWidth="10" Classes="toggle-colors" />
     <TextBlock    Grid.Column="2" Grid.Row="6" Text="toggle" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <ToggleButton Grid.Column="0" Grid.Row="8" Content="To_ggle 2" MinWidth="10" IsThreeState="True" Classes="toggle-colors"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <ToggleButton Grid.Column="0" Grid.Row="8" Content="To_ggle 2" MinWidth="10" IsThreeState="True" Classes="toggle-colors" />
     <TextBlock    Grid.Column="2" Grid.Row="8" Text="3-state toggle" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <RepeatButton Grid.Column="0" Grid.Row="10" Content="_Repeat" MinWidth="10"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <RepeatButton Grid.Column="0" Grid.Row="10" Content="_Repeat" MinWidth="10" />
     <TextBlock    Grid.Column="2" Grid.Row="10" Text="repeat (hold)" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button       Grid.Column="4" Grid.Row="0" Content="_Engage" MinWidth="10" Classes="accent"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button       Grid.Column="4" Grid.Row="0" Content="_Engage" MinWidth="10" Classes="accent" />
     <TextBlock    Grid.Column="6" Grid.Row="0" Text=".accent" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button       Grid.Column="4" Grid.Row="2" Content="_Sync" MinWidth="10" Classes="cool"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button       Grid.Column="4" Grid.Row="2" Content="_Sync" MinWidth="10" Classes="cool" />
     <TextBlock    Grid.Column="6" Grid.Row="2" Text=".cool" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button       Grid.Column="4" Grid.Row="4" Content="_Delete" MinWidth="10" Classes="danger"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button       Grid.Column="4" Grid.Row="4" Content="_Delete" MinWidth="10" Classes="danger" />
     <TextBlock    Grid.Column="6" Grid.Row="4" Text=".danger" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button       Grid.Column="4" Grid.Row="6" Content="Den_y" MinWidth="10" Classes="warning"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button       Grid.Column="4" Grid.Row="6" Content="Den_y" MinWidth="10" Classes="warning" />
     <TextBlock    Grid.Column="6" Grid.Row="6" Text=".warning" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button       Grid.Column="4" Grid.Row="8" Content="In_fo" MinWidth="10" Classes="info"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button       Grid.Column="4" Grid.Row="8" Content="In_fo" MinWidth="10" Classes="info" />
     <TextBlock    Grid.Column="6" Grid.Row="8" Text=".info" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
     
-    <Button       Grid.Column="4" Grid.Row="10" Content="Fi_nish" MinWidth="10" Classes="success"
-                  Command="{Binding ClickCommand}" CommandParameter="{Binding Content, RelativeSource={RelativeSource Self}}" />
+    <Button       Grid.Column="4" Grid.Row="10" Content="Fi_nish" MinWidth="10" Classes="success" />
     <TextBlock    Grid.Column="6" Grid.Row="10" Text=".success" Foreground="{DynamicResource {x:Static ThemeKeys.MutedBrush}}" />
   </Grid>
 </DockPanel>
