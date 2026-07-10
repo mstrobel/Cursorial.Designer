@@ -31,6 +31,10 @@ internal sealed class PreviewSession : IDisposable
     private readonly List<UIElement> _elementsById = [];
     private readonly Dictionary<UIElement, int> _idsByElement = [];
 
+    // Wire key names currently held down (kind:"down" without a matching "up"). A second down
+    // for a held key is a keyboard auto-repeat, which the framework models as IsRepeat.
+    private readonly HashSet<string> _heldKeys = new(StringComparer.OrdinalIgnoreCase);
+
     private UITestHost? _host;
     private StyleQuantizer? _quantizer;
 
@@ -364,7 +368,38 @@ internal sealed class PreviewSession : IDisposable
             return;
         }
 
-        host.SendKey(key, modifiers, text, withRelease: true);
+        switch (command.Kind)
+        {
+            case null or "press":
+                host.SendKey(key, modifiers, text, withRelease: true);
+                break;
+            case "down":
+                host.SendInput(new KeyEvent
+                {
+                    Key = key,
+                    Modifiers = modifiers,
+                    Kind = KeyEventKind.Down,
+                    IsRepeat = !_heldKeys.Add(command.Key),
+                    Text = (text ?? string.Empty).AsMemory(),
+                    Timestamp = default, // SendInput stamps default timestamps on the fake clock
+                });
+                break;
+            case "up":
+                _heldKeys.Remove(command.Key);
+                host.SendInput(new KeyEvent
+                {
+                    Key = key,
+                    Modifiers = modifiers,
+                    Kind = KeyEventKind.Up,
+                    Text = (text ?? string.Empty).AsMemory(),
+                    Timestamp = default,
+                });
+                break;
+            default:
+                _emit(new ErrorEvent { ReplyTo = command.Id, Message = $"Unknown key kind '{command.Kind}' (expected 'down', 'up', or omitted)." });
+                return;
+        }
+
         SettleAndEmitFrame();
     }
 

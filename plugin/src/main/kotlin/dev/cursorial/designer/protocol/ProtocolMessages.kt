@@ -67,6 +67,8 @@ data class PointerCommand(
 data class KeyCommand(
     val key: String,
     val modifiers: List<String> = emptyList(),
+    /** "down"/"up" for real transitions; null = complete press (down + up). */
+    val kind: String? = null,
 ) : PreviewerCommand {
     override val type: String = "key"
 }

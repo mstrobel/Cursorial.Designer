@@ -128,8 +128,8 @@ class CursorialPreviewEditor(
             pendingHitTestId = id
             hostProcess?.sendCommand(HitTestCommand(id, column, row))
         }
-        gridPanel.keyListener = { key, modifiers ->
-            hostProcess?.sendCommand(KeyCommand(key, modifiers))
+        gridPanel.keyListener = { key, modifiers, kind ->
+            hostProcess?.sendCommand(KeyCommand(key, modifiers, kind))
         }
 
         document?.addDocumentListener(

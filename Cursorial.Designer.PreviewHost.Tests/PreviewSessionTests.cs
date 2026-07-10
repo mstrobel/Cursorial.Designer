@@ -353,6 +353,33 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void Key_down_holds_the_pressed_state_until_key_up()
+    {
+        Initialize();
+        Load($"""<StackPanel {Xmlns}><Button x:Name="Hold" Content="Hold me" HorizontalAlignment="Left"/></StackPanel>""");
+
+        // Focus the button, then hold Space: pressed visuals must persist across the down and
+        // clear on the up — not flash for a single frame like a synthesized press.
+        _session.Execute(new PointerCommand { Kind = "down", Column = 2, Row = 0 });
+        _session.Execute(new PointerCommand { Kind = "up", Column = 2, Row = 0 });
+        var idle = LastFrame();
+
+        _session.Execute(new KeyCommand { Key = "Space", Kind = "down" });
+        var held = LastFrame();
+        Assert.NotEqual(FrameStyleSignature(idle), FrameStyleSignature(held));
+
+        _session.Execute(new KeyCommand { Key = "Space", Kind = "down" }); // auto-repeat: stays pressed, no error
+        Assert.Equal(FrameStyleSignature(held), FrameStyleSignature(LastFrame()));
+
+        _session.Execute(new KeyCommand { Key = "Space", Kind = "up" });
+        Assert.Equal(FrameStyleSignature(idle), FrameStyleSignature(LastFrame()));
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+    }
+
+    private static string FrameStyleSignature(FrameEvent frame)
+        => string.Join('|', frame.Lines.Select(runs => string.Join(',', runs.Select(r => $"{r.Text}:{frame.Styles[r.StyleIndex].Fg}/{frame.Styles[r.StyleIndex].Bg}"))));
+
+    [Fact]
     public void Pointer_click_reaches_the_content()
     {
         Initialize();

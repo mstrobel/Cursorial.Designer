@@ -89,7 +89,7 @@ public sealed class PointerCommand : PreviewCommand
     public string? Button { get; init; }
 }
 
-/// <summary>Synthetic key press (a named key or a single printable character).</summary>
+/// <summary>Synthetic keyboard input (a named key or a single printable character).</summary>
 public sealed class KeyCommand : PreviewCommand
 {
     /// <summary>A printable character, or a name: Enter, Tab, Escape, Up, Down, Left, Right, Backspace, Delete, Home, End, PageUp, PageDown, F1..F12, Space.</summary>
@@ -97,6 +97,13 @@ public sealed class KeyCommand : PreviewCommand
 
     /// <summary>Any of <c>ctrl</c>, <c>alt</c>, <c>shift</c>.</summary>
     public IReadOnlyList<string>? Modifiers { get; init; }
+
+    /// <summary>
+    /// <c>down</c> or <c>up</c> for real press/release transitions (holding a key holds the
+    /// pressed state; a repeated <c>down</c> while held is delivered as a key repeat). Omitted:
+    /// a complete press (down immediately followed by up).
+    /// </summary>
+    public string? Kind { get; init; }
 }
 
 /// <summary>Synthetic text entry (a sequence of printable characters).</summary>

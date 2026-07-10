@@ -39,8 +39,9 @@ class CellGridPanel : JComponent() {
     /** Called on Alt+Click; the editor issues a `hitTest` and later calls [showSelection]. */
     var hitTestListener: ((column: Int, row: Int) -> Unit)? = null
 
-    /** Called for keyboard activity while the grid is focused. Send a `key` command. */
-    var keyListener: ((key: String, modifiers: List<String>) -> Unit)? = null
+    /** Called for keyboard activity while the grid is focused. Send a `key` command.
+     *  [kind] is "down"/"up" for real transitions, or null for a complete press. */
+    var keyListener: ((key: String, modifiers: List<String>, kind: String?) -> Unit)? = null
 
     private var frame: FrameEvent? = null
     private var resolvedStyles: List<ResolvedStyle> = emptyList()
@@ -64,8 +65,10 @@ class CellGridPanel : JComponent() {
         addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 val modifiers = modifiersOf(e)
+                // Named keys forward as real down/up transitions: holding Space keeps the
+                // focused button pressed, and Swing auto-repeat becomes a key repeat downstream.
                 namedKey(e.keyCode)?.let { named ->
-                    keyListener?.invoke(named, modifiers)
+                    keyListener?.invoke(named, modifiers, "down")
                     e.consume()
                     return
                 }
@@ -79,9 +82,15 @@ class CellGridPanel : JComponent() {
                         in KeyEvent.VK_0..KeyEvent.VK_9 -> ('0' + (e.keyCode - KeyEvent.VK_0)).toString()
                         else -> return
                     }
-                    keyListener?.invoke(base, modifiers)
+                    keyListener?.invoke(base, modifiers, null)
                     e.consume()
                 }
+            }
+
+            override fun keyReleased(e: KeyEvent) {
+                val named = namedKey(e.keyCode) ?: return
+                keyListener?.invoke(named, modifiersOf(e), "up")
+                e.consume()
             }
 
             override fun keyTyped(e: KeyEvent) {
@@ -89,7 +98,7 @@ class CellGridPanel : JComponent() {
                 val ch = e.keyChar
                 // Space arrives as the named "Space" key via keyPressed; control chars are named too.
                 if (ch == KeyEvent.CHAR_UNDEFINED || ch < ' ' || ch.code == 127 || ch == ' ') return
-                keyListener?.invoke(ch.toString(), emptyList())
+                keyListener?.invoke(ch.toString(), emptyList(), null)
                 e.consume()
             }
         })

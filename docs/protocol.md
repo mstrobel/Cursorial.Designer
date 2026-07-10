@@ -25,7 +25,10 @@ the session survives errors and keeps rendering the previous content.
  "assemblies":["/path/UserApp.dll"]}   // user build output to register for type resolution
 {"type":"resize","columns":100,"rows":30}
 {"type":"pointer","kind":"move|down|up","column":5,"row":2,"button":"left|right|middle"}
-{"type":"key","key":"Enter","modifiers":["ctrl","alt","shift"]}
+{"type":"key","key":"Enter","modifiers":["ctrl","alt","shift"],
+ "kind":"down|up"}                         // omitted = complete press (down + up);
+                                           // down/up are real transitions — holding a key holds
+                                           // pressed state; repeated down while held = key repeat
 {"type":"text","text":"abc"}
 {"type":"advanceTime","milliseconds":100}  // drives the frozen clock (animations)
 {"type":"hitTest","id":7,"column":5,"row":2}
