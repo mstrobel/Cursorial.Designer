@@ -532,10 +532,28 @@ internal sealed class PreviewSession : IDisposable
             string? explanation = null;
             IReadOnlyList<StyleFrameInfo>? frames = null;
             string? resourceKey = null;
+            string? bindingTarget = null;
+            IReadOnlyList<BindingExpressionInfo>? bindings = null;
             try
             {
                 explanation = StyleDiagnostics.Explain(element, property);
                 resourceKey = ResourceDiagnostics.GetResourceKey(element, property)?.ToString();
+
+                var binding = Cursorial.UI.Data.BindingDiagnostics.Explain(element, property);
+                if (binding.HasBindings)
+                {
+                    bindingTarget = binding.TargetDescription;
+                    bindings = binding.Expressions.Select(expression => new BindingExpressionInfo
+                    {
+                        Lane = expression.Lane.ToString(),
+                        Path = expression.Path,
+                        Status = expression.Status.ToString(),
+                        EffectiveMode = expression.EffectiveMode.ToString(),
+                        ResolvedSourceChain = expression.ResolvedSourceChain,
+                        Value = expression.LastProducedValue?.ToString(),
+                        LastFailure = expression.LastFailure == Cursorial.UI.Data.BindingFailureKind.None ? null : expression.LastFailure.ToString(),
+                    }).ToList();
+                }
 
                 var details = StyleDiagnostics.ExplainDetails(element, property);
                 if (details.HasFrames)
@@ -570,6 +588,8 @@ internal sealed class PreviewSession : IDisposable
                 IsAnimated = source.IsAnimated ? true : null,
                 ResourceKey = resourceKey,
                 Frames = frames,
+                BindingTarget = bindingTarget,
+                Bindings = bindings,
             });
         }
 

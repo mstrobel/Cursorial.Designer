@@ -149,6 +149,37 @@ public sealed class PropertyEntry
     /// evaluation order — the expandable provenance tree. Absent for plain local/inherited values.
     /// </summary>
     public IReadOnlyList<StyleFrameInfo>? Frames { get; init; }
+
+    /// <summary>The binding target descriptor (e.g. <c>ContentPresenter#PART_Icon.Content</c>), when bound.</summary>
+    public string? BindingTarget { get; init; }
+
+    /// <summary>Every binding expression tracked for the property, strongest first, when bound.</summary>
+    public IReadOnlyList<BindingExpressionInfo>? Bindings { get; init; }
+}
+
+/// <summary>One binding expression contributing to (or watching) a property value.</summary>
+public sealed class BindingExpressionInfo
+{
+    /// <summary>The lane the expression occupies: LocalValue, FrameHosted, WatchOnly, DirectProperty.</summary>
+    public string? Lane { get; init; }
+
+    /// <summary>The binding path text.</summary>
+    public string? Path { get; init; }
+
+    /// <summary>The expression's current status (e.g. Active).</summary>
+    public string? Status { get; init; }
+
+    /// <summary>The resolved binding mode (e.g. OneWay, TwoWay).</summary>
+    public string? EffectiveMode { get; init; }
+
+    /// <summary>Human-readable description of the resolved source/anchor chain.</summary>
+    public string? ResolvedSourceChain { get; init; }
+
+    /// <summary>The last value produced to the target, host-formatted.</summary>
+    public string? Value { get; init; }
+
+    /// <summary>The last failure kind; omitted when none.</summary>
+    public string? LastFailure { get; init; }
 }
 
 /// <summary>One style frame contending for a property value (from the styling diagnostics).</summary>

@@ -90,14 +90,28 @@ class CursorialPreviewEditor(
     }.apply {
         isRootVisible = false
         showsRootHandles = true
+        // Top-level property nodes stay collapsed by default; expanding one auto-expands its
+        // "interesting" interior (Binding, the winning frame) so one click reveals the meat.
+        addTreeExpansionListener(object : javax.swing.event.TreeExpansionListener {
+            override fun treeExpanded(event: javax.swing.event.TreeExpansionEvent) {
+                val node = event.path.lastPathComponent as? javax.swing.tree.DefaultMutableTreeNode ?: return
+                for (child in node.children()) {
+                    val childNode = child as javax.swing.tree.DefaultMutableTreeNode
+                    if ((childNode.userObject as? PropertyNode)?.autoExpand == true)
+                        expandPath(event.path.pathByAddingChild(childNode))
+                }
+            }
+
+            override fun treeCollapsed(event: javax.swing.event.TreeExpansionEvent) {}
+        })
     }
     private val propertiesPanel = JPanel(BorderLayout()).apply {
         add(propertiesHeader, BorderLayout.NORTH)
         add(com.intellij.ui.components.JBScrollPane(propertiesTree), BorderLayout.CENTER)
     }
 
-    /** A property node's display text plus its tooltip derivation. */
-    private class PropertyNode(private val text: String, val explanation: String?) {
+    /** A property node's display text, its tooltip derivation, and whether a parent expand auto-opens it. */
+    private class PropertyNode(private val text: String, val explanation: String? = null, val autoExpand: Boolean = false) {
         override fun toString(): String = text
     }
     private val splitter = com.intellij.ui.JBSplitter(false, 0.72f).apply {
@@ -355,8 +369,8 @@ class CursorialPreviewEditor(
     }
 
     private fun buildPropertyNode(item: dev.cursorial.designer.protocol.PropertyItem): javax.swing.tree.DefaultMutableTreeNode {
-        fun node(text: String, explanation: String? = null) =
-            javax.swing.tree.DefaultMutableTreeNode(PropertyNode(text, explanation))
+        fun node(text: String, explanation: String? = null, autoExpand: Boolean = false) =
+            javax.swing.tree.DefaultMutableTreeNode(PropertyNode(text, explanation, autoExpand))
 
         val name = item.declaringType?.let { "$it.${item.name}" } ?: item.name
         val property = node("$name: ${item.value ?: ""}", item.explanation)
@@ -367,8 +381,26 @@ class CursorialPreviewEditor(
         if (item.isAnimated == true) property.add(node("IsAnimated: true"))
         item.resourceKey?.let { property.add(node("Resource Key: $it")) }
 
+        if (item.bindings != null) {
+            val bindingNode = node("Binding", autoExpand = true)
+            item.bindingTarget?.let { bindingNode.add(node("Target: $it")) }
+            item.bindings.forEachIndexed { i, binding ->
+                val expressionNode = node("Bindings[$i]: ${binding.path ?: "?"} — ${binding.status ?: "?"}", autoExpand = i == 0)
+                binding.lane?.let { expressionNode.add(node("Lane: $it")) }
+                binding.path?.let { expressionNode.add(node("Path: $it")) }
+                binding.status?.let { expressionNode.add(node("Status: $it")) }
+                binding.effectiveMode?.let { expressionNode.add(node("EffectiveMode: $it")) }
+                binding.resolvedSourceChain?.let { expressionNode.add(node("ResolvedSourceChain: $it")) }
+                binding.value?.let { expressionNode.add(node("LastProducedValue: $it")) }
+                expressionNode.add(node("LastFailure: ${binding.lastFailure ?: "None"}"))
+                bindingNode.add(expressionNode)
+            }
+            property.add(bindingNode)
+        }
+
         item.frames?.forEachIndexed { i, frame ->
-            val frameNode = node("Frames[$i]: ${frame.selector ?: "?"} — ${frame.status ?: "?"}")
+            val winning = frame.status == "Winning"
+            val frameNode = node("Frames[$i]: ${frame.selector ?: "?"} — ${frame.status ?: "?"}", autoExpand = winning)
             frame.layer?.let { frameNode.add(node("Layer: $it")) }
             frame.selector?.let { frameNode.add(node("Selector: $it")) }
             frameNode.add(node("IsActive: ${frame.isActive}"))

@@ -270,6 +270,26 @@ data class PropertyItem(
     val resourceKey: String? = null,
     /** Every style frame contending for the value — the expandable provenance tree. */
     val frames: List<StyleFrameItem>? = null,
+    /** Binding target descriptor (e.g. "ContentPresenter#PART_Icon.Content"), when bound. */
+    val bindingTarget: String? = null,
+    /** Every binding expression tracked for the property, strongest first, when bound. */
+    val bindings: List<BindingExpressionItem>? = null,
+)
+
+data class BindingExpressionItem(
+    /** "LocalValue", "FrameHosted", "WatchOnly", or "DirectProperty". */
+    val lane: String?,
+    val path: String?,
+    /** e.g. "Active". */
+    val status: String?,
+    /** e.g. "OneWay", "TwoWay". */
+    val effectiveMode: String?,
+    /** Human-readable resolved source/anchor chain. */
+    val resolvedSourceChain: String?,
+    /** The last value produced to the target. */
+    val value: String?,
+    /** Last failure kind; null when none. */
+    val lastFailure: String?,
 )
 
 data class StyleFrameItem(

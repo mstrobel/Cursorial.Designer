@@ -301,6 +301,40 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void GetProperties_includes_binding_expressions_for_bound_values()
+    {
+        Initialize();
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        _session.Execute(new LoadXamlCommand
+        {
+            Xaml = $$"""
+                     <StackPanel {{Xmlns}}
+                                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                                 xmlns:t="{{ns}}"
+                                 d:DataContext="t:DesignViewModel">
+                         <TextBlock Text="{Binding Greeting}"/>
+                     </StackPanel>
+                     """,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        _session.Execute(new HitTestCommand { Id = 71, Column = 1, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var textId = Assert.Single(hit.Elements, e => e.ElementType == "TextBlock").ElementId;
+
+        _session.Execute(new GetPropertiesCommand { Id = 72, ElementId = textId });
+        var properties = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
+
+        var text = Assert.Single(properties.Items, p => p.Name == "Text");
+        Assert.NotNull(text.BindingTarget);
+        var expression = Assert.Single(text.Bindings!);
+        Assert.Equal("Greeting", expression.Path);
+        Assert.Equal("Hello from design data", expression.Value);
+        Assert.Null(expression.LastFailure);
+        Assert.False(string.IsNullOrEmpty(expression.EffectiveMode));
+    }
+
+    [Fact]
     public void GetProperties_with_stale_id_reports_an_error()
     {
         Initialize();
