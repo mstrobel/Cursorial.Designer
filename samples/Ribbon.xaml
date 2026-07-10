@@ -1,6 +1,6 @@
 <DockPanel xmlns="https://cursorial.dev/ui"
            xmlns:x="https://cursorial.dev/xaml"
-           xmlns:bars="https://cursorial.dev/ui/bars"
+           xmlns:bars="clr-namespace:Cursorial.UI.Bars;assembly=Cursorial.UI.Bars"
            LastChildFill="True">
   <Border DockPanel.Dock="Top" Background="{DynamicResource {x:Static ThemeKeys.ElevationHighest}}" Padding="1,0">
    <StackPanel Orientation="Vertical">

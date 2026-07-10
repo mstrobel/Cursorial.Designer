@@ -377,6 +377,23 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void Bars_controls_resolve_and_render_out_of_the_box()
+    {
+        Initialize();
+        Load($"""
+              <StackPanel {Xmlns}>
+                  <Toolbar>
+                      <BarButton Content="Save"/>
+                  </Toolbar>
+              </StackPanel>
+              """, id: 21);
+
+        var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
+        Assert.Empty(diagnostics.Items);
+        Assert.Contains("Save", FrameText(LastFrame()));
+    }
+
+    [Fact]
     public void Alt_down_shows_access_key_underlines_until_alt_up()
     {
         Initialize();

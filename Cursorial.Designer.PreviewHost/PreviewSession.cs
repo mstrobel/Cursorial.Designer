@@ -6,6 +6,7 @@ using Cursorial.Input.Events;
 using Cursorial.Output;
 using Cursorial.Rendering;
 using Cursorial.UI;
+using Cursorial.UI.Bars;
 using Cursorial.UI.Controls;
 using Cursorial.UI.Testing;
 using Cursorial.UI.Themes;
@@ -157,6 +158,14 @@ internal sealed class PreviewSession : IDisposable
         // The wire carries what the profiled terminal could actually show, not the pre-quantization
         // intent — an ansi16 preview must look like ansi16.
         _quantizer = new StyleQuantizer(_host.Application.Capabilities.Output);
+
+        // The first-party control suites beyond the seeded core (Bars, Dialogs) are deliberately
+        // not auto-discovered by the schema context; the previewer registers them so every
+        // shipped control is XAML-addressable out of the box. KeyTips ride the Alt gate the
+        // plugin already forwards.
+        XamlSchemaContext.Default.RegisterAssembly(typeof(Toolbar).Assembly);
+        XamlSchemaContext.Default.RegisterAssembly(typeof(Cursorial.UI.Dialogs.MessageBox).Assembly);
+        _host.Application.EnableKeyTips();
 
         ApplyTheme(_host.Application, command.ThemeBase, command.ColorTier);
 
