@@ -222,6 +222,41 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void GetChildren_descends_below_the_hit_test_anchor()
+    {
+        Initialize();
+        Load($"""
+              <StackPanel {Xmlns}>
+                  <TextBlock Text="one"/>
+                  <Button Content="two" HorizontalAlignment="Left"/>
+              </StackPanel>
+              """, sourceUri: "file:///test/Children.xaml");
+
+        _session.Execute(new HitTestCommand { Id = 51, Column = 1, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var rootId = hit.Elements[^1].ElementId; // the StackPanel
+
+        _session.Execute(new GetChildrenCommand { Id = 52, ElementId = rootId });
+
+        var children = Assert.IsType<ChildrenEvent>(_events.Last(e => e is ChildrenEvent));
+        Assert.Equal(52, children.ReplyTo);
+        Assert.Equal(rootId, children.ParentId);
+        Assert.Equal(2, children.Elements.Count);
+        Assert.Equal("TextBlock", children.Elements[0].ElementType);
+        Assert.Equal("Button", children.Elements[1].ElementType);
+        Assert.True(children.Elements[0].InDocument);
+        Assert.Equal(2, children.Elements[0].Line);
+    }
+
+    [Fact]
+    public void GetChildren_with_stale_id_reports_an_error()
+    {
+        Initialize();
+        _session.Execute(new GetChildrenCommand { Id = 53, ElementId = 999 });
+        Assert.Equal(53, Assert.IsType<ErrorEvent>(_events.Last(e => e is ErrorEvent)).ReplyTo);
+    }
+
+    [Fact]
     public void GetProperties_reports_set_values_with_provenance()
     {
         Initialize();

@@ -93,6 +93,9 @@ internal sealed class PreviewSession : IDisposable
             case HitTestCommand hitTest:
                 HitTest(hitTest);
                 break;
+            case GetChildrenCommand children:
+                GetChildren(children);
+                break;
             case GetPropertiesCommand properties:
                 GetProperties(properties);
                 break;
@@ -466,29 +469,49 @@ internal sealed class PreviewSession : IDisposable
 
         var elements = new List<ElementRef>();
         for (var element = hit; element is not null && !ReferenceEquals(element, _container); element = element.VisualParent)
-        {
-            var (column, row) = element.TranslateToScreen(0, 0);
-            var source = XamlSourceRegistry.TryGetSourceInfo(element);
-            elements.Add(new ElementRef
-            {
-                ElementId = IdFor(element),
-                ElementType = element.GetType().Name,
-                Name = element.Name,
-                Bounds = new CellRectInfo
-                {
-                    Column = column,
-                    Row = row,
-                    Columns = element.Bounds.Columns,
-                    Rows = element.Bounds.Rows,
-                },
-                SourceUri = source?.Source?.ToString(),
-                Line = source?.Line,
-                Column = source?.Column,
-                InDocument = source is null ? null : source.Source is not null && source.Source == _documentUri,
-            });
-        }
+            elements.Add(MakeElementRef(element));
 
         _emit(new HitTestResultEvent { ReplyTo = command.Id, Elements = elements });
+    }
+
+    private void GetChildren(GetChildrenCommand command)
+    {
+        _ = Host(command);
+        if (command.ElementId < 0 || command.ElementId >= _elementsById.Count)
+        {
+            _emit(new ErrorEvent { ReplyTo = command.Id, Message = $"Unknown element id {command.ElementId} (stale after reload?)." });
+            return;
+        }
+
+        var parent = _elementsById[command.ElementId];
+        var elements = new List<ElementRef>(parent.VisualChildrenCount);
+        for (var i = 0; i < parent.VisualChildrenCount; i++)
+            elements.Add(MakeElementRef(parent.GetVisualChild(i)));
+
+        _emit(new ChildrenEvent { ReplyTo = command.Id, ParentId = command.ElementId, Elements = elements });
+    }
+
+    private ElementRef MakeElementRef(UIElement element)
+    {
+        var (column, row) = element.TranslateToScreen(0, 0);
+        var source = XamlSourceRegistry.TryGetSourceInfo(element);
+        return new ElementRef
+        {
+            ElementId = IdFor(element),
+            ElementType = element.GetType().Name,
+            Name = element.Name,
+            Bounds = new CellRectInfo
+            {
+                Column = column,
+                Row = row,
+                Columns = element.Bounds.Columns,
+                Rows = element.Bounds.Rows,
+            },
+            SourceUri = source?.Source?.ToString(),
+            Line = source?.Line,
+            Column = source?.Column,
+            InDocument = source is null ? null : source.Source is not null && source.Source == _documentUri,
+        };
     }
 
     private void GetProperties(GetPropertiesCommand command)

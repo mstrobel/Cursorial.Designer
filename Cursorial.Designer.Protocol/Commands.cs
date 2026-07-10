@@ -17,6 +17,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(TextCommand), "text")]
 [JsonDerivedType(typeof(AdvanceTimeCommand), "advanceTime")]
 [JsonDerivedType(typeof(HitTestCommand), "hitTest")]
+[JsonDerivedType(typeof(GetChildrenCommand), "getChildren")]
 [JsonDerivedType(typeof(GetPropertiesCommand), "getProperties")]
 [JsonDerivedType(typeof(SetThemeCommand), "setTheme")]
 [JsonDerivedType(typeof(ShutdownCommand), "shutdown")]
@@ -128,6 +129,15 @@ public sealed class HitTestCommand : PreviewCommand
 
 /// <summary>Query the non-default properties of a previously hit-tested element; answered by a <c>properties</c> event.</summary>
 public sealed class GetPropertiesCommand : PreviewCommand
+{
+    public required int ElementId { get; init; }
+}
+
+/// <summary>
+/// Enumerate an element's visual children (descend below a hit-test anchor, explore siblings);
+/// answered by a <c>children</c> event carrying the same element shape as hit tests.
+/// </summary>
+public sealed class GetChildrenCommand : PreviewCommand
 {
     public required int ElementId { get; init; }
 }

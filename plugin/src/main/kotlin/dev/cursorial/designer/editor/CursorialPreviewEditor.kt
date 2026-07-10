@@ -24,6 +24,8 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.Alarm
 import dev.cursorial.designer.protocol.AdvanceTimeCommand
+import dev.cursorial.designer.protocol.ChildrenEvent
+import dev.cursorial.designer.protocol.GetPropertiesCommand
 import dev.cursorial.designer.protocol.SetThemeCommand
 import dev.cursorial.designer.protocol.DiagnosticsEvent
 import dev.cursorial.designer.protocol.ErrorEvent
@@ -69,11 +71,37 @@ class CursorialPreviewEditor(
 
     private val gridPanel = CellGridPanel()
     private val statusLabel = JBLabel("", SwingConstants.LEADING)
+
+    // ── Properties panel (toggled from the toolbar) ─────────────────────
+    private val propertiesHeader = JBLabel("No selection", SwingConstants.LEADING)
+    private val propertiesModel = object : javax.swing.table.DefaultTableModel(arrayOf<Any>("Property", "Value", "Source"), 0) {
+        override fun isCellEditable(row: Int, column: Int) = false
+    }
+    private var propertyExplanations: List<String?> = emptyList()
+    private val propertiesTable = object : com.intellij.ui.table.JBTable(propertiesModel) {
+        override fun getToolTipText(event: java.awt.event.MouseEvent): String? {
+            val row = rowAtPoint(event.point)
+            val explanation = propertyExplanations.getOrNull(row) ?: return super.getToolTipText(event)
+            return "<html><pre>${com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(explanation)}</pre></html>"
+        }
+    }
+    private val propertiesPanel = JPanel(BorderLayout()).apply {
+        add(propertiesHeader, BorderLayout.NORTH)
+        add(com.intellij.ui.components.JBScrollPane(propertiesTable), BorderLayout.CENTER)
+    }
+    private val splitter = com.intellij.ui.JBSplitter(false, 0.72f).apply {
+        firstComponent = gridPanel
+        secondComponent = null // hidden until the toolbar toggle shows it
+    }
+
     private val rootPanel: JPanel = JPanel(BorderLayout()).apply {
         add(buildToolbar(), BorderLayout.NORTH)
-        add(gridPanel, BorderLayout.CENTER)
+        add(splitter, BorderLayout.CENTER)
         add(statusLabel, BorderLayout.SOUTH)
     }
+
+    @Volatile
+    private var pendingPropertiesId: Int = -1
 
     // Preview session state, re-applied on every host (re)start via onHostReady.
     private var themeBase: String = if (JBColor.isBright()) ThemeBase.LIGHT else ThemeBase.DARK
@@ -138,7 +166,8 @@ class CursorialPreviewEditor(
                 is FrameEvent -> onEdt { gridPanel.render(event) }
                 is DiagnosticsEvent -> onEdt { showDiagnostics(event) }
                 is HitTestResultEvent -> onEdt { showHitTestResult(event) }
-                is PropertiesEvent -> logger.info("properties(replyTo=${event.replyTo}): ${event.items.size} items")
+                is PropertiesEvent -> onEdt { showProperties(event) }
+                is ChildrenEvent -> logger.info("children(replyTo=${event.replyTo}): ${event.elements.size} of #${event.parentId}")
                 is ErrorEvent -> onEdt { statusLabel.text = "Previewer error: ${event.message}" }
                 is LogEvent -> logger.info("PreviewHost [${event.level}]: ${event.message}")
                 is UnknownEvent -> logger.warn("Unknown event type \"${event.type}\" from preview host")
@@ -271,12 +300,46 @@ class CursorialPreviewEditor(
     private fun showSelectionAt(index: Int) {
         val element = selectionChain.getOrNull(index)
         gridPanel.showSelection(element?.bounds)
+        requestProperties(element)
         val fromTemplate = syncCaret(index)
         statusLabel.text = element?.let {
             val depth = if (selectionChain.size > 1) "  (${index + 1}/${selectionChain.size}, [ / ] to walk)" else ""
             val provenance = if (fromTemplate) "  · from template" else ""
             "${it.elementType ?: "element"} ${it.name ?: "#${it.elementId}"}$depth$provenance"
         } ?: ""
+    }
+
+    /** Fetches the selected element's properties when the panel is visible. */
+    private fun requestProperties(element: dev.cursorial.designer.protocol.HitTestElement?) {
+        if (splitter.secondComponent == null) return
+        if (element == null) {
+            propertiesHeader.text = "No selection"
+            propertiesModel.rowCount = 0
+            propertyExplanations = emptyList()
+            return
+        }
+
+        val id = requestIds.incrementAndGet()
+        pendingPropertiesId = id
+        hostProcess?.sendCommand(GetPropertiesCommand(id, element.elementId))
+    }
+
+    private fun showProperties(event: PropertiesEvent) {
+        if (event.replyTo != pendingPropertiesId) return
+        val element = selectionChain.getOrNull(selectionIndex) ?: return
+
+        propertiesHeader.text = buildString {
+            append(element.elementType ?: "element")
+            element.name?.let { append("  '").append(it).append('\'') }
+            append("  —  ").append(event.items.size).append(" set propert").append(if (event.items.size == 1) "y" else "ies")
+        }
+
+        propertiesModel.rowCount = 0
+        propertyExplanations = event.items.map { it.explanation }
+        for (item in event.items) {
+            val name = item.declaringType?.let { "$it.${item.name}" } ?: item.name
+            propertiesModel.addRow(arrayOf<Any?>(name, item.value ?: "", item.valueSource ?: ""))
+        }
     }
 
     /**
@@ -360,6 +423,14 @@ class CursorialPreviewEditor(
                         gridPanel.showSelection(null)
                         statusLabel.text = ""
                     }
+                }
+            })
+            add(object : ToggleAction("Properties", "Show the selected element's set properties with provenance", null) {
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                override fun isSelected(e: AnActionEvent) = splitter.secondComponent != null
+                override fun setSelected(e: AnActionEvent, state: Boolean) {
+                    splitter.secondComponent = if (state) propertiesPanel else null
+                    if (state) requestProperties(selectionChain.getOrNull(selectionIndex))
                 }
             })
             addSeparator()

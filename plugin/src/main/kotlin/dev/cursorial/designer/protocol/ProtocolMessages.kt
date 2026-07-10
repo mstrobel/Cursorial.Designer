@@ -104,6 +104,14 @@ data class GetPropertiesCommand(
     override val type: String = "getProperties"
 }
 
+data class GetChildrenCommand(
+    /** Correlation id echoed back as `replyTo` on the [ChildrenEvent]. */
+    val id: Int,
+    val elementId: Int,
+) : PreviewerCommand {
+    override val type: String = "getChildren"
+}
+
 data class SetThemeCommand(
     /** One of [ThemeBase]; null = leave unchanged. */
     val themeBase: String? = null,
@@ -229,6 +237,13 @@ data class CellRect(
     val rows: Int,
 )
 
+/** Answer to [GetChildrenCommand]: the element's visual children, in visual order. */
+data class ChildrenEvent(
+    val replyTo: Int?,
+    val parentId: Int,
+    val elements: List<HitTestElement>,
+) : PreviewerEvent
+
 data class PropertiesEvent(
     val replyTo: Int?,
     val elementId: Int,
@@ -238,8 +253,12 @@ data class PropertiesEvent(
 data class PropertyItem(
     val name: String,
     val value: String?,
-    /** e.g. "Local", "Style", "Default". */
+    /** e.g. "Local", "StyleSetter", "Inherited". */
     val valueSource: String?,
+    /** The declaring owner type when it isn't the element's own (attached properties). */
+    val declaringType: String? = null,
+    /** Multi-line provenance derivation from the styling diagnostics, when available. */
+    val explanation: String? = null,
 )
 
 data class ErrorEvent(

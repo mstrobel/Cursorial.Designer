@@ -12,6 +12,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(FrameEvent), "frame")]
 [JsonDerivedType(typeof(DiagnosticsEvent), "diagnostics")]
 [JsonDerivedType(typeof(HitTestResultEvent), "hitTestResult")]
+[JsonDerivedType(typeof(ChildrenEvent), "children")]
 [JsonDerivedType(typeof(PropertiesEvent), "properties")]
 [JsonDerivedType(typeof(ErrorEvent), "error")]
 [JsonDerivedType(typeof(LogEvent), "log")]
@@ -60,6 +61,14 @@ public sealed class DiagnosticsEvent : PreviewEvent
 /// <summary>Answer to <c>hitTest</c>: the element chain at the position, innermost first. Empty when nothing hit.</summary>
 public sealed class HitTestResultEvent : PreviewEvent
 {
+    public required IReadOnlyList<ElementRef> Elements { get; init; }
+}
+
+/// <summary>Answer to <c>getChildren</c>: the element's visual children, in visual order.</summary>
+public sealed class ChildrenEvent : PreviewEvent
+{
+    public required int ParentId { get; init; }
+
     public required IReadOnlyList<ElementRef> Elements { get; init; }
 }
 
