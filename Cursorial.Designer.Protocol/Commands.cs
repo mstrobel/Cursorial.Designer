@@ -19,6 +19,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(HitTestCommand), "hitTest")]
 [JsonDerivedType(typeof(GetChildrenCommand), "getChildren")]
 [JsonDerivedType(typeof(GetPropertiesCommand), "getProperties")]
+[JsonDerivedType(typeof(SampleCellCommand), "sampleCell")]
 [JsonDerivedType(typeof(SetThemeCommand), "setTheme")]
 [JsonDerivedType(typeof(ShutdownCommand), "shutdown")]
 public abstract class PreviewCommand
@@ -140,6 +141,17 @@ public sealed class GetPropertiesCommand : PreviewCommand
 public sealed class GetChildrenCommand : PreviewCommand
 {
     public required int ElementId { get; init; }
+}
+
+/// <summary>
+/// Sample what every composited layer contributes at a screen cell — including occluded
+/// glyphs; answered by a <c>cellSamples</c> event. The per-cell composition inspector.
+/// </summary>
+public sealed class SampleCellCommand : PreviewCommand
+{
+    public required int Column { get; init; }
+
+    public required int Row { get; init; }
 }
 
 /// <summary>Switch theme base and/or color tier; answered by a fresh <c>frame</c> event.</summary>

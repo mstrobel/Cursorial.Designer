@@ -104,6 +104,15 @@ data class GetPropertiesCommand(
     override val type: String = "getProperties"
 }
 
+data class SampleCellCommand(
+    /** Correlation id echoed back as `replyTo` on the [CellSamplesEvent]. */
+    val id: Int,
+    val column: Int,
+    val row: Int,
+) : PreviewerCommand {
+    override val type: String = "sampleCell"
+}
+
 data class GetChildrenCommand(
     /** Correlation id echoed back as `replyTo` on the [ChildrenEvent]. */
     val id: Int,
@@ -181,8 +190,14 @@ data class StyleDefinition(
     val fg: String?,
     /** "#RRGGBB" or "default". */
     val bg: String?,
-    /** Any of: "bold", "italic", "underline", "dim", "strikethrough", "reverse". */
+    /** Any of: "bold", "italic", "underline", "dim", "strikethrough", "reverse", "overline". */
     val attrs: List<String>?,
+    /** Underline shape when not the plain single one: "double", "curly", "dotted", "dashed". */
+    val underline: String? = null,
+    /** Underline color when it differs from the foreground. */
+    val underlineColor: String? = null,
+    /** OSC 8 hyperlink target. */
+    val link: String? = null,
 )
 
 data class Run(
@@ -244,6 +259,36 @@ data class ChildrenEvent(
     val elements: List<HitTestElement>,
 ) : PreviewerEvent
 
+/** Answer to [SampleCellCommand]: every composited layer's contribution, bottom-to-top. */
+data class CellSamplesEvent(
+    val replyTo: Int?,
+    val column: Int,
+    val row: Int,
+    val layers: List<LayerSampleItem>,
+) : PreviewerEvent
+
+data class LayerSampleItem(
+    val surfaceZ: Int,
+    /** Owning element description (e.g. "DockPanel", "Backstage"). */
+    val element: String?,
+    /** The grapheme at the cell; null when the cell is outside this layer's footprint. */
+    val grapheme: String?,
+    /** "Single", "WideLeft", "WideContinuation"; null when outside the footprint. */
+    val kind: String?,
+    val parameters: CompositeParametersItem,
+    /** The exact style the layer carries at the cell (pre-quantization intent). */
+    val style: StyleDefinition?,
+)
+
+data class CompositeParametersItem(
+    val offsetColumn: Int,
+    val offsetRow: Int,
+    /** 0 (transparent) - 255 (opaque). */
+    val opacity: Int,
+    val clip: String?,
+    val mode: String?,
+)
+
 data class PropertiesEvent(
     val replyTo: Int?,
     val elementId: Int,
@@ -270,6 +315,8 @@ data class PropertyItem(
     val resourceKey: String? = null,
     /** Every style frame contending for the value — the expandable provenance tree. */
     val frames: List<StyleFrameItem>? = null,
+    /** Inline color swatch ("#RRGGBB" or "#RRGGBBAA"), when the value is color-like. */
+    val swatch: String? = null,
     /** Binding target descriptor (e.g. "ContentPresenter#PART_Icon.Content"), when bound. */
     val bindingTarget: String? = null,
     /** Every binding expression tracked for the property, strongest first, when bound. */
@@ -303,6 +350,8 @@ data class StyleFrameItem(
     val resourceKey: String?,
     /** Packed specificity sort key (hex). */
     val sortKey: String?,
+    /** Inline color swatch for the frame's value, when color-like. */
+    val swatch: String? = null,
 )
 
 data class ErrorEvent(

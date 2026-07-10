@@ -24,8 +24,10 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.Alarm
 import dev.cursorial.designer.protocol.AdvanceTimeCommand
+import dev.cursorial.designer.protocol.CellSamplesEvent
 import dev.cursorial.designer.protocol.ChildrenEvent
 import dev.cursorial.designer.protocol.GetPropertiesCommand
+import dev.cursorial.designer.protocol.SampleCellCommand
 import dev.cursorial.designer.protocol.SetThemeCommand
 import dev.cursorial.designer.protocol.DiagnosticsEvent
 import dev.cursorial.designer.protocol.ErrorEvent
@@ -67,6 +69,28 @@ class CursorialPreviewEditor(
     companion object {
         private val logger = logger<CursorialPreviewEditor>()
         private const val RELOAD_DEBOUNCE_MS = 300
+
+        /** Parses "#RRGGBB" or "#RRGGBBAA" into an AWT color; null for anything else. */
+        fun parseSwatch(hex: String?): java.awt.Color? {
+            if (hex == null || !hex.startsWith("#")) return null
+            return try {
+                when (hex.length) {
+                    7 -> java.awt.Color(hex.substring(1).toInt(16))
+                    9 -> {
+                        val rgba = hex.substring(1).toLong(16)
+                        java.awt.Color(
+                            (rgba shr 24 and 0xFF).toInt(),
+                            (rgba shr 16 and 0xFF).toInt(),
+                            (rgba shr 8 and 0xFF).toInt(),
+                            (rgba and 0xFF).toInt(),
+                        )
+                    }
+                    else -> null
+                }
+            } catch (_: NumberFormatException) {
+                null
+            }
+        }
     }
 
     private val gridPanel = CellGridPanel()
@@ -90,6 +114,27 @@ class CursorialPreviewEditor(
     }.apply {
         isRootVisible = false
         showsRootHandles = true
+        // ColoredTreeCellRenderer over DefaultTreeCellRenderer: non-opaque and theme-correct (no
+        // stray label-background blocks on dark themes), with two-tone rows — muted name, regular
+        // value — in the InspectorDemo idiom. Color-like values get an inline swatch chip.
+        cellRenderer = object : com.intellij.ui.ColoredTreeCellRenderer() {
+            override fun customizeCellRenderer(
+                tree: javax.swing.JTree, value: Any?, selected: Boolean, expanded: Boolean,
+                leaf: Boolean, row: Int, hasFocus: Boolean,
+            ) {
+                val data = (value as? javax.swing.tree.DefaultMutableTreeNode)?.userObject as? PropertyNode ?: return
+                icon = data.swatch?.let { com.intellij.util.ui.ColorIcon(12, it) }
+
+                val text = data.toString()
+                val separator = text.indexOf(": ")
+                if (separator > 0) {
+                    append(text.substring(0, separator + 2), com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    append(text.substring(separator + 2), com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                } else {
+                    append(text, com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                }
+            }
+        }
         // Top-level property nodes stay collapsed by default; expanding one auto-expands its
         // "interesting" interior (Binding, the winning frame) so one click reveals the meat.
         addTreeExpansionListener(object : javax.swing.event.TreeExpansionListener {
@@ -110,12 +155,27 @@ class CursorialPreviewEditor(
         add(com.intellij.ui.components.JBScrollPane(propertiesTree), BorderLayout.CENTER)
     }
 
-    /** A property node's display text, its tooltip derivation, and whether a parent expand auto-opens it. */
-    private class PropertyNode(private val text: String, val explanation: String? = null, val autoExpand: Boolean = false) {
+    /** A property node's display text, tooltip derivation, expansion hint, and optional color swatch. */
+    private class PropertyNode(
+        private val text: String,
+        val explanation: String? = null,
+        val autoExpand: Boolean = false,
+        val swatch: java.awt.Color? = null,
+    ) {
         override fun toString(): String = text
     }
+
+    private val gridScrollPane = com.intellij.ui.components.JBScrollPane(gridPanel).apply {
+        border = null
+        // Session resize tracks the VIEWPORT: while the frame fits, the grid fills it (auto-fit
+        // unchanged); when the frame is larger (e.g. a pinned design size), scrollbars take over.
+        viewport.addComponentListener(object : java.awt.event.ComponentAdapter() {
+            override fun componentResized(e: java.awt.event.ComponentEvent) = gridPanel.refreshGridSize()
+        })
+    }
+
     private val splitter = com.intellij.ui.JBSplitter(false, 0.72f).apply {
-        firstComponent = gridPanel
+        firstComponent = gridScrollPane
         secondComponent = null // hidden until the toolbar toggle shows it
     }
 
@@ -127,6 +187,13 @@ class CursorialPreviewEditor(
 
     @Volatile
     private var pendingPropertiesId: Int = -1
+
+    @Volatile
+    private var pendingSamplesId: Int = -1
+
+    private var lastHitCell: Pair<Int, Int>? = null
+    private var lastPropertiesEvent: PropertiesEvent? = null
+    private var lastSamplesEvent: CellSamplesEvent? = null
 
     // Preview session state, re-applied on every host (re)start via onHostReady.
     private var themeBase: String = if (JBColor.isBright()) ThemeBase.LIGHT else ThemeBase.DARK
@@ -192,6 +259,7 @@ class CursorialPreviewEditor(
                 is DiagnosticsEvent -> onEdt { showDiagnostics(event) }
                 is HitTestResultEvent -> onEdt { showHitTestResult(event) }
                 is PropertiesEvent -> onEdt { showProperties(event) }
+                is CellSamplesEvent -> onEdt { showCellSamples(event) }
                 is ChildrenEvent -> logger.info("children(replyTo=${event.replyTo}): ${event.elements.size} of #${event.parentId}")
                 is ErrorEvent -> onEdt { statusLabel.text = "Previewer error: ${event.message}" }
                 is LogEvent -> logger.info("PreviewHost [${event.level}]: ${event.message}")
@@ -233,6 +301,7 @@ class CursorialPreviewEditor(
             hostProcess?.sendCommand(PointerCommand(kind, column, row, button))
         }
         gridPanel.hitTestListener = { column, row ->
+            lastHitCell = column to row
             val id = requestIds.incrementAndGet()
             pendingHitTestId = id
             hostProcess?.sendCommand(HitTestCommand(id, column, row))
@@ -339,6 +408,8 @@ class CursorialPreviewEditor(
         if (splitter.secondComponent == null) return
         if (element == null) {
             propertiesHeader.text = "No selection"
+            lastPropertiesEvent = null
+            lastSamplesEvent = null
             propertiesRoot.removeAllChildren()
             propertiesTreeModel.reload()
             return
@@ -347,6 +418,12 @@ class CursorialPreviewEditor(
         val id = requestIds.incrementAndGet()
         pendingPropertiesId = id
         hostProcess?.sendCommand(GetPropertiesCommand(id, element.elementId))
+
+        lastHitCell?.let { (column, row) ->
+            val sampleId = requestIds.incrementAndGet()
+            pendingSamplesId = sampleId
+            hostProcess?.sendCommand(SampleCellCommand(sampleId, column, row))
+        }
     }
 
     private fun showProperties(event: PropertiesEvent) {
@@ -362,10 +439,59 @@ class CursorialPreviewEditor(
             append("</html>")
         }
 
+        lastPropertiesEvent = event
+        rebuildInspectorTree()
+    }
+
+    private fun showCellSamples(event: CellSamplesEvent) {
+        if (event.replyTo != pendingSamplesId) return
+        lastSamplesEvent = event
+        rebuildInspectorTree()
+    }
+
+    /** The inspector tree: a Layers drilldown for the clicked cell, then the property nodes. */
+    private fun rebuildInspectorTree() {
         propertiesRoot.removeAllChildren()
-        for (item in event.items)
-            propertiesRoot.add(buildPropertyNode(item))
+        lastSamplesEvent?.let { propertiesRoot.add(buildLayersNode(it)) }
+        lastPropertiesEvent?.let { for (item in it.items) propertiesRoot.add(buildPropertyNode(item)) }
         propertiesTreeModel.reload()
+    }
+
+    private fun buildLayersNode(event: CellSamplesEvent): javax.swing.tree.DefaultMutableTreeNode {
+        fun node(text: String, swatch: java.awt.Color? = null) =
+            javax.swing.tree.DefaultMutableTreeNode(PropertyNode(text, swatch = swatch))
+
+        val layers = node("Layers: ${event.layers.size} at (${event.column}, ${event.row})")
+        for (i in event.layers.indices.reversed()) { // topmost first, like the InspectorDemo
+            val layer = event.layers[i]
+            val glyph = layer.grapheme?.let { "\"$it\"" } ?: "(null)"
+            val layerNode = node("[$i]: $glyph [${layer.kind ?: "—"}] ${layer.element ?: "?"}")
+
+            layer.element?.let { layerNode.add(node("Element: $it")) }
+            layerNode.add(node("SurfaceZ: ${layer.surfaceZ}"))
+
+            val parameters = node("Parameters")
+            layer.parameters.clip?.let { parameters.add(node("Clip: $it")) }
+            parameters.add(node("Mode: ${layer.parameters.mode ?: "(null)"}"))
+            parameters.add(node("OffsetColumn: ${layer.parameters.offsetColumn}"))
+            parameters.add(node("OffsetRow: ${layer.parameters.offsetRow}"))
+            parameters.add(node("Opacity: ${layer.parameters.opacity}"))
+            layerNode.add(parameters)
+
+            layer.style?.let { style ->
+                val styleNode = node("Style")
+                styleNode.add(node("Foreground: ${style.fg ?: "default"}", parseSwatch(style.fg)))
+                styleNode.add(node("Background: ${style.bg ?: "default"}", parseSwatch(style.bg)))
+                styleNode.add(node("Attributes: ${style.attrs?.joinToString(", ") ?: "None"}"))
+                style.underline?.let { styleNode.add(node("UnderlineStyle: $it")) }
+                style.underlineColor?.let { styleNode.add(node("UnderlineColor: $it", parseSwatch(it))) }
+                style.link?.let { styleNode.add(node("Hyperlink: $it")) }
+                layerNode.add(styleNode)
+            }
+
+            layers.add(layerNode)
+        }
+        return layers
     }
 
     private fun buildPropertyNode(item: dev.cursorial.designer.protocol.PropertyItem): javax.swing.tree.DefaultMutableTreeNode {
@@ -373,7 +499,8 @@ class CursorialPreviewEditor(
             javax.swing.tree.DefaultMutableTreeNode(PropertyNode(text, explanation, autoExpand))
 
         val name = item.declaringType?.let { "$it.${item.name}" } ?: item.name
-        val property = node("$name: ${item.value ?: ""}", item.explanation)
+        val property = javax.swing.tree.DefaultMutableTreeNode(
+            PropertyNode("$name: ${item.value ?: ""}", item.explanation, swatch = parseSwatch(item.swatch)))
 
         item.valueSource?.let { property.add(node("Kind: $it")) }
         item.priority?.let { property.add(node("Priority: $it")) }
@@ -400,7 +527,9 @@ class CursorialPreviewEditor(
 
         item.frames?.forEachIndexed { i, frame ->
             val winning = frame.status == "Winning"
-            val frameNode = node("Frames[$i]: ${frame.selector ?: "?"} — ${frame.status ?: "?"}", autoExpand = winning)
+            val frameNode = javax.swing.tree.DefaultMutableTreeNode(PropertyNode(
+                "Frames[$i]: ${frame.selector ?: "?"} — ${frame.status ?: "?"}",
+                autoExpand = winning, swatch = parseSwatch(frame.swatch)))
             frame.layer?.let { frameNode.add(node("Layer: $it")) }
             frame.selector?.let { frameNode.add(node("Selector: $it")) }
             frameNode.add(node("IsActive: ${frame.isActive}"))

@@ -34,6 +34,7 @@ the session survives errors and keeps rendering the previous content.
 {"type":"hitTest","id":7,"column":5,"row":2}
 {"type":"getChildren","id":9,"elementId":3}   // descend below a hit-test anchor / explore siblings
 {"type":"getProperties","id":8,"elementId":3}
+{"type":"sampleCell","id":10,"column":5,"row":2}  // per-cell composition inspector
 {"type":"setTheme","themeBase":"light","colorTier":"truecolor"}
 {"type":"shutdown"}
 ```
@@ -63,6 +64,12 @@ exits on Escape — WPF-style.
    "bounds":{"column":2,"row":1,"columns":10,"rows":3}}]}
 
 {"type":"children","replyTo":9,"parentId":3,"elements":[ /* same shape as hitTestResult */ ]}
+
+{"type":"cellSamples","replyTo":10,"column":5,"row":2,"layers":[   // bottom → top
+  {"surfaceZ":0,"element":"DockPanel","grapheme":"a","kind":"Single",
+   "parameters":{"offsetColumn":0,"offsetRow":0,"opacity":255,"clip":"…","mode":null},
+   "style":{"fg":"#c0caf5","bg":"#1a1b26"}}]}   // style = pre-quantization intent; null when
+                                                // the cell is outside the layer's footprint
 
 {"type":"properties","replyTo":8,"elementId":3,"items":[
   {"name":"Text","value":"Hello","valueSource":"Local","explanation":"…"}]}

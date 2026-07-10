@@ -90,7 +90,7 @@ internal static class FrameSerializer
         return index;
     }
 
-    private static StyleInfo ToStyleInfo(Style style)
+    internal static StyleInfo ToStyleInfo(Style style)
     {
         List<string>? attrs = null;
         void Add(TextAttributes flag, string name)

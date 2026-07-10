@@ -14,6 +14,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(HitTestResultEvent), "hitTestResult")]
 [JsonDerivedType(typeof(ChildrenEvent), "children")]
 [JsonDerivedType(typeof(PropertiesEvent), "properties")]
+[JsonDerivedType(typeof(CellSamplesEvent), "cellSamples")]
 [JsonDerivedType(typeof(ErrorEvent), "error")]
 [JsonDerivedType(typeof(LogEvent), "log")]
 public abstract class PreviewEvent
@@ -81,6 +82,59 @@ public sealed class PropertiesEvent : PreviewEvent
     public string? Classes { get; init; }
 
     public required IReadOnlyList<PropertyEntry> Items { get; init; }
+}
+
+/// <summary>
+/// Answer to <c>sampleCell</c>: every composited layer's contribution at the cell, ordered
+/// bottom→top (display usually reverses). Layers whose footprint excludes the cell carry no
+/// cell payload but still report their surface and composite parameters.
+/// </summary>
+public sealed class CellSamplesEvent : PreviewEvent
+{
+    public required int Column { get; init; }
+
+    public required int Row { get; init; }
+
+    public required IReadOnlyList<LayerSampleInfo> Layers { get; init; }
+}
+
+/// <summary>One composited layer's contribution at a sampled cell.</summary>
+public sealed class LayerSampleInfo
+{
+    /// <summary>The layer's z-order within its surface.</summary>
+    public required int SurfaceZ { get; init; }
+
+    /// <summary>Description of the element that owns the layer (e.g. <c>DockPanel</c>, <c>Backstage</c>).</summary>
+    public string? Element { get; init; }
+
+    /// <summary>The grapheme at the cell in this layer, when the cell is inside the layer's footprint.</summary>
+    public string? Grapheme { get; init; }
+
+    /// <summary>The cell kind: <c>Single</c>, <c>WideLeft</c>, <c>WideContinuation</c>; absent when outside the footprint.</summary>
+    public string? Kind { get; init; }
+
+    /// <summary>The layer's composite parameters (offset, opacity, clip, blend mode).</summary>
+    public required CompositeParametersInfo Parameters { get; init; }
+
+    /// <summary>The exact style the layer carries at the cell (pre-quantization intent).</summary>
+    public StyleInfo? Style { get; init; }
+}
+
+/// <summary>Composite parameters a layer was blended with.</summary>
+public sealed class CompositeParametersInfo
+{
+    public required int OffsetColumn { get; init; }
+
+    public required int OffsetRow { get; init; }
+
+    /// <summary>0 (transparent) – 255 (opaque).</summary>
+    public required int Opacity { get; init; }
+
+    /// <summary>The clip rectangle in target coordinates, host-formatted; absent when unclipped.</summary>
+    public string? Clip { get; init; }
+
+    /// <summary>The blend mode name; absent for the default (source-over).</summary>
+    public string? Mode { get; init; }
 }
 
 /// <summary>A command failed. The session stays alive; the previous content keeps rendering.</summary>

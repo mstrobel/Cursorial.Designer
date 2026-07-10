@@ -150,6 +150,9 @@ public sealed class PropertyEntry
     /// </summary>
     public IReadOnlyList<StyleFrameInfo>? Frames { get; init; }
 
+    /// <summary>An inline color swatch for the value (<c>#RRGGBB</c> or <c>#RRGGBBAA</c>), when the value is color-like.</summary>
+    public string? Swatch { get; init; }
+
     /// <summary>The binding target descriptor (e.g. <c>ContentPresenter#PART_Icon.Content</c>), when bound.</summary>
     public string? BindingTarget { get; init; }
 
@@ -208,4 +211,7 @@ public sealed class StyleFrameInfo
 
     /// <summary>The frame's packed specificity sort key (hex string).</summary>
     public string? SortKey { get; init; }
+
+    /// <summary>An inline color swatch for the frame's value, when color-like.</summary>
+    public string? Swatch { get; init; }
 }
