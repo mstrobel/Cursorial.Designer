@@ -85,6 +85,33 @@ class CursorialPreviewEditor(
         hostProcess?.sendCommand(AdvanceTimeCommand(33))
     }
 
+    // Restart-on-rebuild: the located user assemblies and their last-observed stamps. Watching
+    // the output file (rather than IDE build events) catches IDE builds, CLI builds, and
+    // anything else that produces fresh bits. A change must hold stable for one tick before the
+    // restart fires, so a mid-write file is never loaded.
+    private val watchedAssemblies = HashMap<String, Long>()
+    private var pendingAssemblyChange: Map<String, Long>? = null
+    private val rebuildWatchTimer = javax.swing.Timer(2000) { checkForRebuild() }.apply { start() }
+
+    private fun checkForRebuild() {
+        if (watchedAssemblies.isEmpty()) return
+        val current = watchedAssemblies.keys.associateWith { java.io.File(it).lastModified() }
+        if (current == watchedAssemblies) {
+            pendingAssemblyChange = null
+            return
+        }
+
+        // Changed since load: wait until two consecutive ticks agree (the build finished writing).
+        if (current == pendingAssemblyChange) {
+            pendingAssemblyChange = null
+            watchedAssemblies.putAll(current)
+            statusLabel.text = "Project output changed — restarting preview…"
+            hostProcess?.restart()
+        } else {
+            pendingAssemblyChange = current
+        }
+    }
+
     private val reloadAlarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
     private val requestIds = AtomicInteger()
 
@@ -196,6 +223,14 @@ class CursorialPreviewEditor(
 
         val located = UserAssemblyLocator.locate(file)
         located.problem?.let { statusLabel.text = it }
+
+        // sendLoadXaml can run on the host pump thread; the watch map lives on the EDT (timer).
+        val stamps = located.assemblies.associateWith { java.io.File(it).lastModified() }
+        onEdt {
+            watchedAssemblies.clear()
+            pendingAssemblyChange = null
+            watchedAssemblies.putAll(stamps)
+        }
 
         process.sendCommand(
             LoadXamlCommand(
@@ -387,6 +422,7 @@ class CursorialPreviewEditor(
 
     override fun dispose() {
         playTimer.stop()
+        rebuildWatchTimer.stop()
         // hostProcess is disposed through Disposer (registered in init).
     }
 }
