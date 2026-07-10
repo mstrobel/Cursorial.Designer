@@ -15,6 +15,8 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JComponent
@@ -37,6 +39,9 @@ class CellGridPanel : JComponent() {
     /** Called on Alt+Click; the editor issues a `hitTest` and later calls [showSelection]. */
     var hitTestListener: ((column: Int, row: Int) -> Unit)? = null
 
+    /** Called for keyboard activity while the grid is focused. Send a `key` command. */
+    var keyListener: ((key: String, modifiers: List<String>) -> Unit)? = null
+
     private var frame: FrameEvent? = null
     private var resolvedStyles: List<ResolvedStyle> = emptyList()
     private var selection: CellRect? = null
@@ -48,9 +53,45 @@ class CellGridPanel : JComponent() {
     init {
         isOpaque = true
         isFocusable = true
+        // Tab must reach the preview (it's focus navigation *inside* the rendered UI), not move
+        // Swing focus to the next IDE component.
+        focusTraversalKeysEnabled = false
 
         addComponentListener(object : ComponentAdapter() {
             override fun componentResized(e: ComponentEvent) = notifyGridSizeIfChanged()
+        })
+
+        addKeyListener(object : KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                val modifiers = modifiersOf(e)
+                namedKey(e.keyCode)?.let { named ->
+                    keyListener?.invoke(named, modifiers)
+                    e.consume()
+                    return
+                }
+
+                // Ctrl/Alt/Cmd chords don't produce a useful keyTyped (macOS Alt composes,
+                // Ctrl yields control characters) — reconstruct the base character from the key
+                // code so access keys (Alt+C) and shortcuts reach the preview.
+                if (e.isControlDown || e.isAltDown || e.isMetaDown) {
+                    val base = when (e.keyCode) {
+                        in KeyEvent.VK_A..KeyEvent.VK_Z -> ('a' + (e.keyCode - KeyEvent.VK_A)).toString()
+                        in KeyEvent.VK_0..KeyEvent.VK_9 -> ('0' + (e.keyCode - KeyEvent.VK_0)).toString()
+                        else -> return
+                    }
+                    keyListener?.invoke(base, modifiers)
+                    e.consume()
+                }
+            }
+
+            override fun keyTyped(e: KeyEvent) {
+                if (e.isControlDown || e.isMetaDown || e.isAltDown) return // keyPressed handled these
+                val ch = e.keyChar
+                // Space arrives as the named "Space" key via keyPressed; control chars are named too.
+                if (ch == KeyEvent.CHAR_UNDEFINED || ch < ' ' || ch.code == 127 || ch == ' ') return
+                keyListener?.invoke(ch.toString(), emptyList())
+                e.consume()
+            }
         })
 
         val mouseHandler = object : MouseAdapter() {
@@ -271,6 +312,34 @@ class CellGridPanel : JComponent() {
         SwingUtilities.isRightMouseButton(e) -> PointerButton.RIGHT
         SwingUtilities.isMiddleMouseButton(e) -> PointerButton.MIDDLE
         else -> PointerButton.LEFT
+    }
+
+    private fun modifiersOf(e: KeyEvent): List<String> = buildList {
+        if (e.isControlDown) add("ctrl")
+        if (e.isAltDown) add("alt")
+        if (e.isShiftDown) add("shift")
+        if (e.isMetaDown) add("meta")
+    }
+
+    /** Protocol names for non-printable keys (docs/protocol.md); null = not a named key. */
+    private fun namedKey(code: Int): String? = when (code) {
+        KeyEvent.VK_ENTER -> "Enter"
+        KeyEvent.VK_TAB -> "Tab"
+        KeyEvent.VK_ESCAPE -> "Escape"
+        KeyEvent.VK_SPACE -> "Space"
+        KeyEvent.VK_UP -> "Up"
+        KeyEvent.VK_DOWN -> "Down"
+        KeyEvent.VK_LEFT -> "Left"
+        KeyEvent.VK_RIGHT -> "Right"
+        KeyEvent.VK_BACK_SPACE -> "Backspace"
+        KeyEvent.VK_DELETE -> "Delete"
+        KeyEvent.VK_INSERT -> "Insert"
+        KeyEvent.VK_HOME -> "Home"
+        KeyEvent.VK_END -> "End"
+        KeyEvent.VK_PAGE_UP -> "PageUp"
+        KeyEvent.VK_PAGE_DOWN -> "PageDown"
+        in KeyEvent.VK_F1..KeyEvent.VK_F12 -> "F${code - KeyEvent.VK_F1 + 1}"
+        else -> null
     }
 
     private data class CellMetrics(

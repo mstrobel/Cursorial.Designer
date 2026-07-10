@@ -23,6 +23,7 @@ import dev.cursorial.designer.protocol.FrameEvent
 import dev.cursorial.designer.protocol.HitTestCommand
 import dev.cursorial.designer.protocol.HitTestResultEvent
 import dev.cursorial.designer.protocol.InitializeCommand
+import dev.cursorial.designer.protocol.KeyCommand
 import dev.cursorial.designer.protocol.LoadXamlCommand
 import dev.cursorial.designer.protocol.LogEvent
 import dev.cursorial.designer.protocol.PointerCommand
@@ -126,6 +127,9 @@ class CursorialPreviewEditor(
             val id = requestIds.incrementAndGet()
             pendingHitTestId = id
             hostProcess?.sendCommand(HitTestCommand(id, column, row))
+        }
+        gridPanel.keyListener = { key, modifiers ->
+            hostProcess?.sendCommand(KeyCommand(key, modifiers))
         }
 
         document?.addDocumentListener(
