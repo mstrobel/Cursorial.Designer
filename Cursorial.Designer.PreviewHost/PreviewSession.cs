@@ -527,28 +527,60 @@ internal sealed class PreviewSession : IDisposable
         var items = new List<PropertyEntry>();
         foreach (var property in element.GetSetProperties())
         {
+            // Provenance is best-effort decoration; a property the diagnostics can't explain
+            // still belongs in the grid.
             string? explanation = null;
+            IReadOnlyList<StyleFrameInfo>? frames = null;
+            string? resourceKey = null;
             try
             {
                 explanation = StyleDiagnostics.Explain(element, property);
+                resourceKey = ResourceDiagnostics.GetResourceKey(element, property)?.ToString();
+
+                var details = StyleDiagnostics.ExplainDetails(element, property);
+                if (details.HasFrames)
+                {
+                    frames = details.Frames.Select(frame => new StyleFrameInfo
+                    {
+                        Layer = frame.Layer.ToString(),
+                        Selector = frame.SelectorDescription,
+                        IsActive = frame.IsActive,
+                        HasValue = frame.HasValue,
+                        Value = frame.LastProducedValue?.ToString(),
+                        Status = frame.Status,
+                        ResourceKey = frame.ResourceKey?.ToString(),
+                        SortKey = frame.SortKey.ToString(),
+                    }).ToList();
+                }
             }
             catch
             {
-                // Provenance is best-effort decoration; a property the style engine can't explain
-                // still belongs in the grid.
             }
 
+            var source = element.GetValueSource(property);
             items.Add(new PropertyEntry
             {
                 Name = property.Name,
                 Value = element.GetValue(property)?.ToString(),
-                ValueSource = element.GetValueSource(property).Kind.ToString(),
+                ValueSource = source.Kind.ToString(),
                 DeclaringType = property.OwnerType.IsInstanceOfType(element) ? null : property.OwnerType.Name,
                 Explanation = explanation,
+                Priority = source.Priority.ToString(),
+                BasePriority = source.BasePriority != source.Priority ? source.BasePriority.ToString() : null,
+                IsAnimated = source.IsAnimated ? true : null,
+                ResourceKey = resourceKey,
+                Frames = frames,
             });
         }
 
-        _emit(new PropertiesEvent { ReplyTo = command.Id, ElementId = command.ElementId, Items = items });
+        var classes = string.Join(", ", element.Classes);
+        _emit(new PropertiesEvent
+        {
+            ReplyTo = command.Id,
+            ElementId = command.ElementId,
+            Classes = classes.Length == 0 ? null : classes,
+            Items = items,
+        });
     }
 
     private int IdFor(UIElement element)

@@ -279,6 +279,28 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void GetProperties_includes_style_frames_for_styled_values()
+    {
+        Initialize();
+        Load($"""<StackPanel {Xmlns}><Button Content="styled" HorizontalAlignment="Left"/></StackPanel>""");
+
+        _session.Execute(new HitTestCommand { Id = 61, Column = 3, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var buttonId = Assert.Single(hit.Elements, e => e.ElementType == "Button").ElementId;
+
+        _session.Execute(new GetPropertiesCommand { Id = 62, ElementId = buttonId });
+        var properties = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
+
+        // The built-in theme styles buttons richly (Background, Foreground, Padding, …), so
+        // styled properties must carry the full frame breakdown: layer + selector + status.
+        var styled = properties.Items.First(p => p.Frames is { Count: > 0 } && p.ValueSource == "StyleSetter");
+        var frame = styled.Frames![0];
+        Assert.False(string.IsNullOrEmpty(frame.Layer));
+        Assert.False(string.IsNullOrEmpty(frame.Status));
+        Assert.NotNull(styled.Priority);
+    }
+
+    [Fact]
     public void GetProperties_with_stale_id_reports_an_error()
     {
         Initialize();

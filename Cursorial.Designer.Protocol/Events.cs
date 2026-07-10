@@ -77,6 +77,9 @@ public sealed class PropertiesEvent : PreviewEvent
 {
     public required int ElementId { get; init; }
 
+    /// <summary>The element's active style classes and pseudo-classes (e.g. <c>:pointerover, .accent</c>), when any.</summary>
+    public string? Classes { get; init; }
+
     public required IReadOnlyList<PropertyEntry> Items { get; init; }
 }
 

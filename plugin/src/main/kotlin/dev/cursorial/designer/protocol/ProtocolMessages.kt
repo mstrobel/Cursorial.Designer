@@ -247,6 +247,8 @@ data class ChildrenEvent(
 data class PropertiesEvent(
     val replyTo: Int?,
     val elementId: Int,
+    /** The element's active style classes/pseudo-classes (e.g. ":pointerover, .accent"). */
+    val classes: String? = null,
     val items: List<PropertyItem>,
 ) : PreviewerEvent
 
@@ -259,6 +261,28 @@ data class PropertyItem(
     val declaringType: String? = null,
     /** Multi-line provenance derivation from the styling diagnostics, when available. */
     val explanation: String? = null,
+    /** Winning binding priority (e.g. "LocalValue", "Style"). */
+    val priority: String? = null,
+    /** Pre-animation base priority, only when it differs. */
+    val basePriority: String? = null,
+    val isAnimated: Boolean? = null,
+    /** Theme/resource key the effective value resolved through. */
+    val resourceKey: String? = null,
+    /** Every style frame contending for the value — the expandable provenance tree. */
+    val frames: List<StyleFrameItem>? = null,
+)
+
+data class StyleFrameItem(
+    val layer: String?,
+    val selector: String?,
+    val isActive: Boolean,
+    val hasValue: Boolean,
+    val value: String?,
+    /** e.g. "Winning", "Overridden", "Inactive". */
+    val status: String?,
+    val resourceKey: String?,
+    /** Packed specificity sort key (hex). */
+    val sortKey: String?,
 )
 
 data class ErrorEvent(

@@ -123,12 +123,58 @@ public sealed class PropertyEntry
     /// <summary>Display string of the effective value (host-formatted).</summary>
     public string? Value { get; init; }
 
-    /// <summary>Which lane won: e.g. Local, Style, Theme, Animation, Inherited (host-defined names).</summary>
+    /// <summary>The winning lane's kind: e.g. Local, StyleSetter, StyleWhen, Inherited, Animation.</summary>
     public string? ValueSource { get; init; }
 
     /// <summary>Declaring owner type of the property, when it isn't the element's own type.</summary>
     public string? DeclaringType { get; init; }
 
-    /// <summary>Human-readable provenance line from the styling diagnostics, when available.</summary>
+    /// <summary>Human-readable provenance derivation from the styling diagnostics, when available.</summary>
     public string? Explanation { get; init; }
+
+    /// <summary>The winning binding priority (e.g. LocalValue, Style, Template, Inherited).</summary>
+    public string? Priority { get; init; }
+
+    /// <summary>The pre-animation base priority, when it differs from <see cref="Priority"/>.</summary>
+    public string? BasePriority { get; init; }
+
+    /// <summary>True when an animation currently owns the value.</summary>
+    public bool? IsAnimated { get; init; }
+
+    /// <summary>The theme/resource key the effective value resolved through, when resource-backed.</summary>
+    public string? ResourceKey { get; init; }
+
+    /// <summary>
+    /// Every style frame attempting to control this property (winning and losing alike), in
+    /// evaluation order — the expandable provenance tree. Absent for plain local/inherited values.
+    /// </summary>
+    public IReadOnlyList<StyleFrameInfo>? Frames { get; init; }
+}
+
+/// <summary>One style frame contending for a property value (from the styling diagnostics).</summary>
+public sealed class StyleFrameInfo
+{
+    /// <summary>The style layer the frame belongs to (e.g. Theme, App, Local — host-defined names).</summary>
+    public string? Layer { get; init; }
+
+    /// <summary>The frame's selector, as authored (e.g. <c>Button.accent:pointerover</c>).</summary>
+    public string? Selector { get; init; }
+
+    /// <summary>Whether the selector currently matches.</summary>
+    public required bool IsActive { get; init; }
+
+    /// <summary>Whether the frame currently produces a value.</summary>
+    public required bool HasValue { get; init; }
+
+    /// <summary>The value the frame last produced, host-formatted.</summary>
+    public string? Value { get; init; }
+
+    /// <summary>The frame's disposition: e.g. Winning, Overridden, Inactive (host-defined names).</summary>
+    public string? Status { get; init; }
+
+    /// <summary>The resource key the frame's value resolves through, when resource-backed.</summary>
+    public string? ResourceKey { get; init; }
+
+    /// <summary>The frame's packed specificity sort key (hex string).</summary>
+    public string? SortKey { get; init; }
 }

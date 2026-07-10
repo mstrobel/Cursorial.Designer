@@ -73,21 +73,32 @@ class CursorialPreviewEditor(
     private val statusLabel = JBLabel("", SwingConstants.LEADING)
 
     // ── Properties panel (toggled from the toolbar) ─────────────────────
+    // Presentation follows the framework's own InspectorDemo: one tree, "Name: value" per
+    // property, expanding into the full provenance — kind/priority/resource key and every
+    // style frame contending for the value (winning and losing alike).
     private val propertiesHeader = JBLabel("No selection", SwingConstants.LEADING)
-    private val propertiesModel = object : javax.swing.table.DefaultTableModel(arrayOf<Any>("Property", "Value", "Source"), 0) {
-        override fun isCellEditable(row: Int, column: Int) = false
-    }
-    private var propertyExplanations: List<String?> = emptyList()
-    private val propertiesTable = object : com.intellij.ui.table.JBTable(propertiesModel) {
+    private val propertiesRoot = javax.swing.tree.DefaultMutableTreeNode()
+    private val propertiesTreeModel = javax.swing.tree.DefaultTreeModel(propertiesRoot)
+    private val propertiesTree = object : com.intellij.ui.treeStructure.Tree(propertiesTreeModel) {
         override fun getToolTipText(event: java.awt.event.MouseEvent): String? {
-            val row = rowAtPoint(event.point)
-            val explanation = propertyExplanations.getOrNull(row) ?: return super.getToolTipText(event)
+            val path = getPathForLocation(event.x, event.y) ?: return super.getToolTipText(event)
+            val node = path.lastPathComponent as? javax.swing.tree.DefaultMutableTreeNode
+            val data = node?.userObject as? PropertyNode ?: return super.getToolTipText(event)
+            val explanation = data.explanation ?: return super.getToolTipText(event)
             return "<html><pre>${com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(explanation)}</pre></html>"
         }
+    }.apply {
+        isRootVisible = false
+        showsRootHandles = true
     }
     private val propertiesPanel = JPanel(BorderLayout()).apply {
         add(propertiesHeader, BorderLayout.NORTH)
-        add(com.intellij.ui.components.JBScrollPane(propertiesTable), BorderLayout.CENTER)
+        add(com.intellij.ui.components.JBScrollPane(propertiesTree), BorderLayout.CENTER)
+    }
+
+    /** A property node's display text plus its tooltip derivation. */
+    private class PropertyNode(private val text: String, val explanation: String?) {
+        override fun toString(): String = text
     }
     private val splitter = com.intellij.ui.JBSplitter(false, 0.72f).apply {
         firstComponent = gridPanel
@@ -314,8 +325,8 @@ class CursorialPreviewEditor(
         if (splitter.secondComponent == null) return
         if (element == null) {
             propertiesHeader.text = "No selection"
-            propertiesModel.rowCount = 0
-            propertyExplanations = emptyList()
+            propertiesRoot.removeAllChildren()
+            propertiesTreeModel.reload()
             return
         }
 
@@ -329,17 +340,47 @@ class CursorialPreviewEditor(
         val element = selectionChain.getOrNull(selectionIndex) ?: return
 
         propertiesHeader.text = buildString {
+            append("<html><b>")
             append(element.elementType ?: "element")
             element.name?.let { append("  '").append(it).append('\'') }
-            append("  —  ").append(event.items.size).append(" set propert").append(if (event.items.size == 1) "y" else "ies")
+            append("</b>  —  ").append(event.items.size).append(" set propert").append(if (event.items.size == 1) "y" else "ies")
+            event.classes?.let { append("<br>Classes: ").append(it) }
+            append("</html>")
         }
 
-        propertiesModel.rowCount = 0
-        propertyExplanations = event.items.map { it.explanation }
-        for (item in event.items) {
-            val name = item.declaringType?.let { "$it.${item.name}" } ?: item.name
-            propertiesModel.addRow(arrayOf<Any?>(name, item.value ?: "", item.valueSource ?: ""))
+        propertiesRoot.removeAllChildren()
+        for (item in event.items)
+            propertiesRoot.add(buildPropertyNode(item))
+        propertiesTreeModel.reload()
+    }
+
+    private fun buildPropertyNode(item: dev.cursorial.designer.protocol.PropertyItem): javax.swing.tree.DefaultMutableTreeNode {
+        fun node(text: String, explanation: String? = null) =
+            javax.swing.tree.DefaultMutableTreeNode(PropertyNode(text, explanation))
+
+        val name = item.declaringType?.let { "$it.${item.name}" } ?: item.name
+        val property = node("$name: ${item.value ?: ""}", item.explanation)
+
+        item.valueSource?.let { property.add(node("Kind: $it")) }
+        item.priority?.let { property.add(node("Priority: $it")) }
+        item.basePriority?.let { property.add(node("BasePriority: $it")) }
+        if (item.isAnimated == true) property.add(node("IsAnimated: true"))
+        item.resourceKey?.let { property.add(node("Resource Key: $it")) }
+
+        item.frames?.forEachIndexed { i, frame ->
+            val frameNode = node("Frames[$i]: ${frame.selector ?: "?"} — ${frame.status ?: "?"}")
+            frame.layer?.let { frameNode.add(node("Layer: $it")) }
+            frame.selector?.let { frameNode.add(node("Selector: $it")) }
+            frameNode.add(node("IsActive: ${frame.isActive}"))
+            frameNode.add(node("HasValue: ${frame.hasValue}"))
+            frame.value?.let { frameNode.add(node("LastProducedValue: $it")) }
+            frame.resourceKey?.let { frameNode.add(node("ResourceKey: $it")) }
+            frame.status?.let { frameNode.add(node("Status: $it")) }
+            frame.sortKey?.let { frameNode.add(node("SortKey: $it")) }
+            property.add(frameNode)
         }
+
+        return property
     }
 
     /**
