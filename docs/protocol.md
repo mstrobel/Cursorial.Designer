@@ -32,6 +32,7 @@ the session survives errors and keeps rendering the previous content.
 {"type":"text","text":"abc"}
 {"type":"advanceTime","milliseconds":100}  // drives the frozen clock (animations)
 {"type":"hitTest","id":7,"column":5,"row":2}
+{"type":"getChildren","id":9,"elementId":3}   // descend below a hit-test anchor / explore siblings
 {"type":"getProperties","id":8,"elementId":3}
 {"type":"setTheme","themeBase":"light","colorTier":"truecolor"}
 {"type":"shutdown"}
@@ -60,6 +61,8 @@ exits on Escape — WPF-style.
 {"type":"hitTestResult","replyTo":7,"elements":[            // innermost first
   {"elementId":3,"elementType":"Button","name":"ok",
    "bounds":{"column":2,"row":1,"columns":10,"rows":3}}]}
+
+{"type":"children","replyTo":9,"parentId":3,"elements":[ /* same shape as hitTestResult */ ]}
 
 {"type":"properties","replyTo":8,"elementId":3,"items":[
   {"name":"Text","value":"Hello","valueSource":"Local","explanation":"…"}]}
