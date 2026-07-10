@@ -165,8 +165,17 @@ class CursorialPreviewEditor(
         override fun toString(): String = text
     }
 
+    private val gridScrollPane = com.intellij.ui.components.JBScrollPane(gridPanel).apply {
+        border = null
+        // Session resize tracks the VIEWPORT: while the frame fits, the grid fills it (auto-fit
+        // unchanged); when the frame is larger (e.g. a pinned design size), scrollbars take over.
+        viewport.addComponentListener(object : java.awt.event.ComponentAdapter() {
+            override fun componentResized(e: java.awt.event.ComponentEvent) = gridPanel.refreshGridSize()
+        })
+    }
+
     private val splitter = com.intellij.ui.JBSplitter(false, 0.72f).apply {
-        firstComponent = gridPanel
+        firstComponent = gridScrollPane
         secondComponent = null // hidden until the toolbar toggle shows it
     }
 

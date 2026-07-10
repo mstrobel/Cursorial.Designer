@@ -20,6 +20,7 @@ import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JComponent
+import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
 
 /**
@@ -28,7 +29,7 @@ import javax.swing.SwingUtilities
  *
  * Threading: all mutators must be called on the EDT (they trigger repaints).
  */
-class CellGridPanel : JComponent() {
+class CellGridPanel : JComponent(), javax.swing.Scrollable {
 
     /** Called when the panel's size, measured in cells, changes. Send a `resize` command. */
     var resizeListener: ((columns: Int, rows: Int) -> Unit)? = null
@@ -189,14 +190,37 @@ class CellGridPanel : JComponent() {
         repaint()
     }
 
-    /** The current panel size measured in cells; falls back to 80x24 before the panel is laid out. */
+    /** The visible preview size in cells (the viewport extent inside a scroll pane, else the
+     *  panel bounds); falls back to 80x24 before layout. */
     fun gridSize(): Pair<Int, Int> {
         val metrics = cellMetrics()
-        if (width <= 0 || height <= 0) return DEFAULT_COLUMNS to DEFAULT_ROWS
-        val columns = (width / metrics.cellWidth).coerceAtLeast(1)
-        val rows = (height / metrics.cellHeight).coerceAtLeast(1)
+        val viewport = parent as? javax.swing.JViewport
+        val visibleWidth = viewport?.extentSize?.width ?: width
+        val visibleHeight = viewport?.extentSize?.height ?: height
+        if (visibleWidth <= 0 || visibleHeight <= 0) return DEFAULT_COLUMNS to DEFAULT_ROWS
+        val columns = (visibleWidth / metrics.cellWidth).coerceAtLeast(1)
+        val rows = (visibleHeight / metrics.cellHeight).coerceAtLeast(1)
         return columns to rows
     }
+
+    /** Re-evaluates the visible grid size and notifies on change — call when the viewport resizes. */
+    fun refreshGridSize() = notifyGridSizeIfChanged()
+
+    // ── Scrollable: fill the viewport while the frame fits (auto-fit), scroll when it doesn't ──
+
+    override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+
+    override fun getScrollableUnitIncrement(visibleRect: java.awt.Rectangle, orientation: Int, direction: Int): Int =
+        if (orientation == SwingConstants.HORIZONTAL) cellMetrics().cellWidth else cellMetrics().cellHeight
+
+    override fun getScrollableBlockIncrement(visibleRect: java.awt.Rectangle, orientation: Int, direction: Int): Int =
+        if (orientation == SwingConstants.HORIZONTAL) visibleRect.width else visibleRect.height
+
+    override fun getScrollableTracksViewportWidth(): Boolean =
+        (parent as? javax.swing.JViewport)?.let { it.width >= preferredSize.width } ?: true
+
+    override fun getScrollableTracksViewportHeight(): Boolean =
+        (parent as? javax.swing.JViewport)?.let { it.height >= preferredSize.height } ?: true
 
     // ------------------------------------------------------------------
     // Painting
