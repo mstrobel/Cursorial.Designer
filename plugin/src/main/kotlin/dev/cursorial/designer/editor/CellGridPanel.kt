@@ -44,10 +44,14 @@ class CellGridPanel : JComponent() {
     var keyListener: ((key: String, modifiers: List<String>, kind: String?) -> Unit)? = null
 
     /**
-     * When true, plain clicks hit-test (element selection) instead of driving the previewed app;
-     * Alt+Click hit-tests in either mode. Toggled from the preview toolbar.
+     * When true, plain clicks hit-test (element selection) instead of driving the previewed app,
+     * and keyboard input stays in the designer ('[' / ']' walk the selection up/down the element
+     * chain) instead of forwarding; Alt+Click hit-tests in either mode. Toggled from the toolbar.
      */
     var selectMode: Boolean = false
+
+    /** Called in select mode for '[' (outward = true, toward the root) and ']' (inward). */
+    var treeWalkListener: ((outward: Boolean) -> Unit)? = null
 
     private var frame: FrameEvent? = null
     private var resolvedStyles: List<ResolvedStyle> = emptyList()
@@ -70,6 +74,12 @@ class CellGridPanel : JComponent() {
 
         addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
+                // Select mode is inspection: nothing forwards to the app (keyTyped handles [ / ]).
+                if (selectMode) {
+                    e.consume()
+                    return
+                }
+
                 val modifiers = modifiersOf(e)
                 // Named keys forward as real down/up transitions: holding Space keeps the
                 // focused button pressed, Swing auto-repeat becomes a key repeat downstream,
@@ -95,12 +105,26 @@ class CellGridPanel : JComponent() {
             }
 
             override fun keyReleased(e: KeyEvent) {
+                if (selectMode) {
+                    e.consume()
+                    return
+                }
+
                 val named = namedKey(e) ?: return
                 keyListener?.invoke(named, modifiersOf(e), "up")
                 e.consume()
             }
 
             override fun keyTyped(e: KeyEvent) {
+                if (selectMode) {
+                    when (e.keyChar) {
+                        '[' -> treeWalkListener?.invoke(true)
+                        ']' -> treeWalkListener?.invoke(false)
+                    }
+                    e.consume()
+                    return
+                }
+
                 if (e.isControlDown || e.isMetaDown || e.isAltDown) return // keyPressed handled these
                 val ch = e.keyChar
                 // Space arrives as the named "Space" key via keyPressed; control chars are named too.

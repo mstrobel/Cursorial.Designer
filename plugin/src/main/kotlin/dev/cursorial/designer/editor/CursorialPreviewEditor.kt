@@ -89,6 +89,12 @@ class CursorialPreviewEditor(
     @Volatile
     private var pendingHitTestId: Int = -1
 
+    // The most recent hit-test chain (innermost first) and the currently selected depth within
+    // it — '[' walks outward toward the root, ']' back inward. Pointer selection alone cannot
+    // reach every layer of a deep templated tree.
+    private var selectionChain: List<dev.cursorial.designer.protocol.HitTestElement> = emptyList()
+    private var selectionIndex: Int = 0
+
     private val document: Document? =
         ReadAction.compute<Document?, RuntimeException> {
             FileDocumentManager.getInstance().getDocument(file)
@@ -151,6 +157,7 @@ class CursorialPreviewEditor(
         gridPanel.keyListener = { key, modifiers, kind ->
             hostProcess?.sendCommand(KeyCommand(key, modifiers, kind))
         }
+        gridPanel.treeWalkListener = { outward -> walkSelection(outward) }
 
         document?.addDocumentListener(
             object : DocumentListener {
@@ -212,10 +219,24 @@ class CursorialPreviewEditor(
 
     private fun showHitTestResult(event: HitTestResultEvent) {
         if (event.replyTo != pendingHitTestId) return
-        val topElement = event.elements.firstOrNull()
-        gridPanel.showSelection(topElement?.bounds)
-        statusLabel.text = topElement?.let {
-            "${it.elementType ?: "element"} ${it.name ?: "#${it.elementId}"}"
+        selectionChain = event.elements
+        selectionIndex = 0
+        showSelectionAt(selectionIndex)
+    }
+
+    /** '[' walks outward (toward the root), ']' back inward. No-op without a selection. */
+    private fun walkSelection(outward: Boolean) {
+        if (selectionChain.isEmpty()) return
+        selectionIndex = (selectionIndex + if (outward) 1 else -1).coerceIn(0, selectionChain.lastIndex)
+        showSelectionAt(selectionIndex)
+    }
+
+    private fun showSelectionAt(index: Int) {
+        val element = selectionChain.getOrNull(index)
+        gridPanel.showSelection(element?.bounds)
+        statusLabel.text = element?.let {
+            val depth = if (selectionChain.size > 1) "  (${index + 1}/${selectionChain.size}, [ / ] to walk)" else ""
+            "${it.elementType ?: "element"} ${it.name ?: "#${it.elementId}"}$depth"
         } ?: ""
     }
 
@@ -266,7 +287,11 @@ class CursorialPreviewEditor(
                 override fun isSelected(e: AnActionEvent) = gridPanel.selectMode
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
                     gridPanel.selectMode = state
-                    if (!state) gridPanel.showSelection(null)
+                    if (!state) {
+                        selectionChain = emptyList()
+                        gridPanel.showSelection(null)
+                        statusLabel.text = ""
+                    }
                 }
             })
             addSeparator()
