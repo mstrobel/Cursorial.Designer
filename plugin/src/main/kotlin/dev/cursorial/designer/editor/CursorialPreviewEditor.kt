@@ -58,6 +58,8 @@ import javax.swing.SwingConstants
 class CursorialPreviewEditor(
     private val project: Project,
     private val file: VirtualFile,
+    /** The paired text editor of the split view; selection changes sync its caret to the element's markup. */
+    private val textEditor: com.intellij.openapi.fileEditor.TextEditor? = null,
 ) : UserDataHolderBase(), FileEditor {
 
     companion object {
@@ -234,10 +236,41 @@ class CursorialPreviewEditor(
     private fun showSelectionAt(index: Int) {
         val element = selectionChain.getOrNull(index)
         gridPanel.showSelection(element?.bounds)
+        val fromTemplate = syncCaret(index)
         statusLabel.text = element?.let {
             val depth = if (selectionChain.size > 1) "  (${index + 1}/${selectionChain.size}, [ / ] to walk)" else ""
-            "${it.elementType ?: "element"} ${it.name ?: "#${it.elementId}"}$depth"
+            val provenance = if (fromTemplate) "  · from template" else ""
+            "${it.elementType ?: "element"} ${it.name ?: "#${it.elementId}"}$depth$provenance"
         } ?: ""
+    }
+
+    /**
+     * Moves the text editor's caret to the selected element's markup. A document-owned element
+     * syncs directly; a template-expanded element (foreign or untracked span) falls back to the
+     * nearest document-owned ancestor in the chain — the logical-tree mapping. Returns whether
+     * the fallback was used.
+     */
+    private fun syncCaret(index: Int): Boolean {
+        val editor = textEditor?.editor ?: return false
+        val selected = selectionChain.getOrNull(index) ?: return false
+
+        var target = selected
+        var fromTemplate = false
+        if (target.inDocument != true) {
+            target = (index + 1..selectionChain.lastIndex)
+                .map { selectionChain[it] }
+                .firstOrNull { it.inDocument == true } ?: return false
+            fromTemplate = true
+        }
+
+        val line = target.line ?: return fromTemplate
+        val position = com.intellij.openapi.editor.LogicalPosition(
+            (line - 1).coerceAtLeast(0),
+            ((target.column ?: 1) - 1).coerceAtLeast(0),
+        )
+        editor.caretModel.moveToLogicalPosition(position)
+        editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.MAKE_VISIBLE)
+        return fromTemplate
     }
 
     private fun onEdt(action: () -> Unit) {
