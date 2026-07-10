@@ -99,6 +99,9 @@ internal sealed class PreviewSession : IDisposable
             case GetPropertiesCommand properties:
                 GetProperties(properties);
                 break;
+            case SampleCellCommand sample:
+                SampleCell(sample);
+                break;
             case SetThemeCommand theme:
                 ApplyTheme(Host(command).Application, theme.ThemeBase, theme.ColorTier);
                 SettleAndEmitFrame();
@@ -491,6 +494,40 @@ internal sealed class PreviewSession : IDisposable
         _emit(new ChildrenEvent { ReplyTo = command.Id, ParentId = command.ElementId, Elements = elements });
     }
 
+    private void SampleCell(SampleCellCommand command)
+    {
+        var host = Host(command);
+        var manager = host.Application.WindowManager;
+        if (manager is null)
+        {
+            _emit(new ErrorEvent { ReplyTo = command.Id, Message = "The window manager is not composed yet." });
+            return;
+        }
+
+        var layers = manager.SampleCell(command.Column, command.Row)
+            .Select(sample => new LayerSampleInfo
+            {
+                SurfaceZ = sample.SurfaceZ,
+                Element = sample.ElementDescription,
+                Grapheme = sample.Cell?.Grapheme,
+                Kind = sample.Cell?.Kind.ToString(),
+                Parameters = new CompositeParametersInfo
+                {
+                    OffsetColumn = sample.Parameters.OffsetColumn,
+                    OffsetRow = sample.Parameters.OffsetRow,
+                    Opacity = sample.Parameters.Opacity,
+                    Clip = sample.Parameters.Clip?.ToString(),
+                    Mode = sample.Parameters.Mode?.ToString(),
+                },
+                // The layer's carried style is the pre-quantization intent — exactly what the
+                // composition inspector wants to see.
+                Style = sample.Cell is { } cell ? FrameSerializer.ToStyleInfo(cell.Style) : null,
+            })
+            .ToList();
+
+        _emit(new CellSamplesEvent { ReplyTo = command.Id, Column = command.Column, Row = command.Row, Layers = layers });
+    }
+
     private ElementRef MakeElementRef(UIElement element)
     {
         var (column, row) = element.TranslateToScreen(0, 0);
@@ -550,7 +587,7 @@ internal sealed class PreviewSession : IDisposable
                         Status = expression.Status.ToString(),
                         EffectiveMode = expression.EffectiveMode.ToString(),
                         ResolvedSourceChain = expression.ResolvedSourceChain,
-                        Value = expression.LastProducedValue?.ToString(),
+                        Value = ValueFormatter.Format(expression.LastProducedValue),
                         LastFailure = expression.LastFailure == Cursorial.UI.Data.BindingFailureKind.None ? null : expression.LastFailure.ToString(),
                     }).ToList();
                 }
@@ -564,7 +601,8 @@ internal sealed class PreviewSession : IDisposable
                         Selector = frame.SelectorDescription,
                         IsActive = frame.IsActive,
                         HasValue = frame.HasValue,
-                        Value = frame.LastProducedValue?.ToString(),
+                        Value = ValueFormatter.Format(frame.LastProducedValue),
+                        Swatch = ValueFormatter.SwatchHex(frame.LastProducedValue),
                         Status = frame.Status,
                         ResourceKey = frame.ResourceKey?.ToString(),
                         SortKey = frame.SortKey.ToString(),
@@ -579,7 +617,8 @@ internal sealed class PreviewSession : IDisposable
             items.Add(new PropertyEntry
             {
                 Name = property.Name,
-                Value = element.GetValue(property)?.ToString(),
+                Value = ValueFormatter.Format(element.GetValue(property)),
+                Swatch = ValueFormatter.SwatchHex(element.GetValue(property)),
                 ValueSource = source.Kind.ToString(),
                 DeclaringType = property.OwnerType.IsInstanceOfType(element) ? null : property.OwnerType.Name,
                 Explanation = explanation,

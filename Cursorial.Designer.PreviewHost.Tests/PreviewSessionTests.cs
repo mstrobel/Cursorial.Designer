@@ -335,6 +335,28 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void SampleCell_reports_every_layer_with_style_and_parameters()
+    {
+        Initialize();
+        Load($"""<StackPanel {Xmlns}><TextBlock Text="sampled"/></StackPanel>""");
+
+        // (1, 0) is inside the TextBlock's text — the root surface must contribute a glyph.
+        _session.Execute(new SampleCellCommand { Id = 81, Column = 1, Row = 0 });
+
+        var samples = Assert.IsType<CellSamplesEvent>(_events.Last(e => e is CellSamplesEvent));
+        Assert.Equal(81, samples.ReplyTo);
+        Assert.Equal(1, samples.Column);
+        Assert.NotEmpty(samples.Layers);
+
+        var bottom = samples.Layers[0];
+        Assert.Equal("a", bottom.Grapheme); // "sampled"[1]
+        Assert.Equal("Single", bottom.Kind);
+        Assert.NotNull(bottom.Style);
+        Assert.Equal(255, bottom.Parameters.Opacity);
+        Assert.False(string.IsNullOrEmpty(bottom.Element));
+    }
+
+    [Fact]
     public void GetProperties_with_stale_id_reports_an_error()
     {
         Initialize();
