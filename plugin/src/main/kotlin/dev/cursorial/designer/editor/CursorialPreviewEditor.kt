@@ -243,7 +243,7 @@ class CursorialPreviewEditor(
                 for (tier in listOf("truecolor", "ansi256", "ansi16", "nocolor"))
                     add(tierAction(tier))
             })
-            add(DefaultActionGroup("Terminal", true).apply {
+            add(DefaultActionGroup("Terminal Profiles", true).apply {
                 templatePresentation.description = "Preview against a synthetic terminal capability profile (restarts the preview)"
                 for (profile in listOf("kitty-truecolor", "ansi16", "no-motion", "kitty-graphics", "sixel", "iterm2"))
                     add(capabilityAction(profile))
