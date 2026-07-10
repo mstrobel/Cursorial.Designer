@@ -1,5 +1,12 @@
 package dev.cursorial.designer.editor
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
@@ -17,6 +24,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.Alarm
 import dev.cursorial.designer.protocol.AdvanceTimeCommand
+import dev.cursorial.designer.protocol.SetThemeCommand
 import dev.cursorial.designer.protocol.DiagnosticsEvent
 import dev.cursorial.designer.protocol.ErrorEvent
 import dev.cursorial.designer.protocol.FrameEvent
@@ -60,8 +68,19 @@ class CursorialPreviewEditor(
     private val gridPanel = CellGridPanel()
     private val statusLabel = JBLabel("", SwingConstants.LEADING)
     private val rootPanel: JPanel = JPanel(BorderLayout()).apply {
+        add(buildToolbar(), BorderLayout.NORTH)
         add(gridPanel, BorderLayout.CENTER)
         add(statusLabel, BorderLayout.SOUTH)
+    }
+
+    // Preview session state, re-applied on every host (re)start via onHostReady.
+    private var themeBase: String = if (JBColor.isBright()) ThemeBase.LIGHT else ThemeBase.DARK
+    private var colorTier: String? = null
+    private var capabilitiesProfile: String = "kitty-truecolor"
+
+    /** Streams virtual time into the preview (~30 fps) so animations run while "playing". */
+    private val playTimer = javax.swing.Timer(33) {
+        hostProcess?.sendCommand(AdvanceTimeCommand(33))
     }
 
     private val reloadAlarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
@@ -149,10 +168,13 @@ class CursorialPreviewEditor(
         val process = hostProcess ?: return
 
         val (columns, rows) = gridPanel.gridSize()
-        // TODO(verify): JBColor.isBright() as the light/dark signal; consider LafManager listener
-        //  to send setTheme when the IDE theme changes.
-        val themeBase = if (JBColor.isBright()) ThemeBase.LIGHT else ThemeBase.DARK
-        process.sendCommand(InitializeCommand(columns = columns, rows = rows, themeBase = themeBase))
+        process.sendCommand(InitializeCommand(
+            columns = columns,
+            rows = rows,
+            capabilities = capabilitiesProfile,
+            themeBase = themeBase,
+            colorTier = colorTier,
+        ))
         sendLoadXaml()
         // Nudge the host to produce a first frame even for purely animation-driven UIs.
         process.sendCommand(AdvanceTimeCommand(0))
@@ -203,6 +225,87 @@ class CursorialPreviewEditor(
     }
 
     // ------------------------------------------------------------------
+    // Preview toolbar
+    // ------------------------------------------------------------------
+
+    private fun buildToolbar(): JComponent {
+        val group = DefaultActionGroup().apply {
+            add(object : ToggleAction("Dark", "Toggle the preview between the dark and light theme base", null) {
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                override fun isSelected(e: AnActionEvent) = themeBase == ThemeBase.DARK
+                override fun setSelected(e: AnActionEvent, state: Boolean) {
+                    themeBase = if (state) ThemeBase.DARK else ThemeBase.LIGHT
+                    hostProcess?.sendCommand(SetThemeCommand(themeBase = themeBase))
+                }
+            })
+            add(DefaultActionGroup("Tier", true).apply {
+                templatePresentation.description = "Preview under a specific color tier"
+                for (tier in listOf("truecolor", "ansi256", "ansi16", "nocolor"))
+                    add(tierAction(tier))
+            })
+            add(DefaultActionGroup("Terminal", true).apply {
+                templatePresentation.description = "Preview against a synthetic terminal capability profile (restarts the preview)"
+                for (profile in listOf("kitty-truecolor", "ansi16", "no-motion", "kitty-graphics", "sixel", "iterm2"))
+                    add(capabilityAction(profile))
+            })
+            addSeparator()
+            add(object : ToggleAction("Play", "Stream time into the preview so animations and timers run", AllIcons.Actions.Execute) {
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                override fun isSelected(e: AnActionEvent) = playTimer.isRunning
+                override fun setSelected(e: AnActionEvent, state: Boolean) {
+                    if (state) playTimer.start() else playTimer.stop()
+                }
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.icon = if (playTimer.isRunning) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
+                    e.presentation.text = if (playTimer.isRunning) "Pause" else "Play"
+                }
+            })
+            add(object : ToggleAction("Select", "Clicks select elements for inspection instead of driving the app (Alt+Click always selects)", null) {
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                override fun isSelected(e: AnActionEvent) = gridPanel.selectMode
+                override fun setSelected(e: AnActionEvent, state: Boolean) {
+                    gridPanel.selectMode = state
+                    if (!state) gridPanel.showSelection(null)
+                }
+            })
+            addSeparator()
+            add(object : AnAction("Restart", "Restart the preview host process and reload the document", AllIcons.Actions.Restart) {
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                override fun actionPerformed(e: AnActionEvent) {
+                    hostProcess?.restart()
+                }
+            })
+        }
+
+        val toolbar = ActionManager.getInstance().createActionToolbar("CursorialDesignerPreview", group, true)
+        toolbar.targetComponent = gridPanel
+        return toolbar.component
+    }
+
+    private fun tierAction(tier: String): AnAction = object : ToggleAction(tier) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun isSelected(e: AnActionEvent) = colorTier == tier
+        override fun setSelected(e: AnActionEvent, state: Boolean) {
+            if (!state) return
+            colorTier = tier
+            hostProcess?.sendCommand(SetThemeCommand(colorTier = tier))
+        }
+    }
+
+    private fun capabilityAction(profile: String): AnAction = object : ToggleAction(profile) {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+        override fun isSelected(e: AnActionEvent) = capabilitiesProfile == profile
+        override fun setSelected(e: AnActionEvent, state: Boolean) {
+            if (!state || capabilitiesProfile == profile) return
+            capabilitiesProfile = profile
+            // The capability snapshot is fixed at initialize; a fresh host picks it up via
+            // onHostReady, which re-sends initialize + loadXaml with the current selections.
+            hostProcess?.restart()
+        }
+    }
+
+    // ------------------------------------------------------------------
     // FileEditor implementation
     // ------------------------------------------------------------------
 
@@ -225,6 +328,7 @@ class CursorialPreviewEditor(
     override fun removePropertyChangeListener(listener: PropertyChangeListener) {}
 
     override fun dispose() {
+        playTimer.stop()
         // hostProcess is disposed through Disposer (registered in init).
     }
 }

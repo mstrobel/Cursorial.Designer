@@ -43,6 +43,12 @@ class CellGridPanel : JComponent() {
      *  [kind] is "down"/"up" for real transitions, or null for a complete press. */
     var keyListener: ((key: String, modifiers: List<String>, kind: String?) -> Unit)? = null
 
+    /**
+     * When true, plain clicks hit-test (element selection) instead of driving the previewed app;
+     * Alt+Click hit-tests in either mode. Toggled from the preview toolbar.
+     */
+    var selectMode: Boolean = false
+
     private var frame: FrameEvent? = null
     private var resolvedStyles: List<ResolvedStyle> = emptyList()
     private var selection: CellRect? = null
@@ -108,7 +114,7 @@ class CellGridPanel : JComponent() {
             override fun mousePressed(e: MouseEvent) {
                 requestFocusInWindow()
                 val (column, row) = cellAt(e) ?: return
-                if (e.isAltDown) {
+                if (selectMode || e.isAltDown) {
                     hitTestListener?.invoke(column, row)
                     return
                 }
@@ -117,7 +123,7 @@ class CellGridPanel : JComponent() {
 
             override fun mouseReleased(e: MouseEvent) {
                 val (column, row) = cellAt(e) ?: return
-                if (e.isAltDown) return
+                if (selectMode || e.isAltDown) return
                 pointerListener?.invoke(PointerKind.UP, column, row, buttonOf(e))
             }
 

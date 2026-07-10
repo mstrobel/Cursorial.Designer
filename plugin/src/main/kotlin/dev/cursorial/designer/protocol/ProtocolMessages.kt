@@ -34,6 +34,8 @@ data class InitializeCommand(
     val rows: Int,
     val capabilities: String = "kitty-truecolor",
     val themeBase: String = ThemeBase.DARK,
+    /** e.g. "truecolor", "ansi256", "ansi16", "nocolor"; null = the host's default for the profile. */
+    val colorTier: String? = null,
 ) : PreviewerCommand {
     override val type: String = "initialize"
 }
@@ -103,10 +105,10 @@ data class GetPropertiesCommand(
 }
 
 data class SetThemeCommand(
-    /** One of [ThemeBase]. */
-    val themeBase: String,
-    /** e.g. "truecolor". */
-    val colorTier: String,
+    /** One of [ThemeBase]; null = leave unchanged. */
+    val themeBase: String? = null,
+    /** e.g. "truecolor", "ansi256", "ansi16", "nocolor"; null = leave unchanged. */
+    val colorTier: String? = null,
 ) : PreviewerCommand {
     override val type: String = "setTheme"
 }

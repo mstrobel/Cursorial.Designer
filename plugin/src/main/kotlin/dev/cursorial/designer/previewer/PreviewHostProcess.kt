@@ -66,6 +66,7 @@ class PreviewHostProcess(
     private val listeners = CopyOnWriteArrayList<Listener>()
     private val disposed = AtomicBoolean(false)
     private val shutdownRequested = AtomicBoolean(false)
+    private val restartPending = AtomicBoolean(false)
 
     private val stateLock = Any()
     private var processHandler: OSProcessHandler? = null
@@ -117,6 +118,26 @@ class PreviewHostProcess(
 
     val isRunning: Boolean
         get() = synchronized(stateLock) { processHandler?.isProcessTerminated == false }
+
+    /**
+     * Stops the host (graceful shutdown request, then destroy) and starts a fresh one as soon as
+     * the old process reports terminated — used when the session must be re-initialized (e.g. a
+     * capability-profile change) or the user asks for a restart. Subscribers get [Listener.onStarted]
+     * and re-send `initialize`/`loadXaml`, exactly like the crash-restart path.
+     */
+    fun restart() {
+        if (disposed.get()) return
+
+        val handler = synchronized(stateLock) { processHandler }
+        if (handler == null || handler.isProcessTerminated) {
+            start()
+            return
+        }
+
+        restartPending.set(true)
+        sendCommand(ShutdownCommand())
+        handler.destroyProcess()
+    }
 
     override fun dispose() {
         if (!disposed.compareAndSet(false, true)) return
@@ -222,11 +243,11 @@ class PreviewHostProcess(
             val ranHealthy = System.currentTimeMillis() - lastStartTimeMs > HEALTHY_RUN_MS
             if (ranHealthy) restartAttempts = 0
 
+            val explicitRestart = restartPending.getAndSet(false)
             restart = !disposed.get() &&
                 !shutdownRequested.get() &&
-                exitCode != 0 &&
-                restartAttempts < MAX_RESTART_ATTEMPTS
-            if (restart) restartAttempts++
+                (explicitRestart || (exitCode != 0 && restartAttempts < MAX_RESTART_ATTEMPTS))
+            if (restart && !explicitRestart) restartAttempts++
         }
 
         logger.info("Preview host terminated with exit code $exitCode (restart=$restart)")
