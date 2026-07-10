@@ -12,6 +12,12 @@ public sealed class ThrowingControl : UIElement
         => throw new InvalidOperationException("designed to fail during measure");
 }
 
+/// <summary>A design-time data context for the d:DataContext round-trip test.</summary>
+public sealed class DesignViewModel
+{
+    public string Greeting => "Hello from design data";
+}
+
 /// <summary>
 /// Drives <see cref="PreviewSession"/> in-process on the test thread (which becomes the preview's
 /// UI thread, exactly as the stdio loop thread does in production). Each test owns one session;
@@ -374,6 +380,43 @@ public class PreviewSessionTests : IDisposable
         _session.Execute(new KeyCommand { Key = "Space", Kind = "up" });
         Assert.Equal(FrameStyleSignature(idle), FrameStyleSignature(LastFrame()));
         Assert.DoesNotContain(_events, e => e is ErrorEvent);
+    }
+
+    [Fact]
+    public void Design_time_metadata_sizes_the_root_and_binds_design_data()
+    {
+        Initialize(columns: 60, rows: 16);
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        _session.Execute(new LoadXamlCommand
+        {
+            Id = 31,
+            Xaml = $$"""
+                     <StackPanel {{Xmlns}}
+                                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                                 xmlns:t="{{ns}}"
+                                 d:DesignWidth="30" d:DesignHeight="5"
+                                 d:DataContext="t:DesignViewModel">
+                         <TextBlock Text="{Binding Greeting}"/>
+                     </StackPanel>
+                     """,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
+        Assert.Empty(diagnostics.Items);
+
+        // d:DataContext constructed the viewmodel, so the binding renders real design data.
+        Assert.Contains("Hello from design data", FrameText(LastFrame()));
+
+        // d:DesignWidth/Height constrain the root: hit the surface center and read the
+        // outermost user element's bounds (the chrome container is never reported).
+        _session.Execute(new HitTestCommand { Id = 32, Column = 30, Row = 7 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        Assert.NotEmpty(hit.Elements);
+        var root = hit.Elements[^1];
+        Assert.Equal("StackPanel", root.ElementType);
+        Assert.Equal(30, root.Bounds.Columns);
+        Assert.Equal(5, root.Bounds.Rows);
     }
 
     [Fact]
