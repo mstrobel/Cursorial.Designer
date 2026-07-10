@@ -275,6 +275,8 @@ internal sealed class PreviewSession : IDisposable
             window.SetValue(UIElement.OpacityProperty, 1.0);
         }
 
+        ApplyDesignInfo(document.DesignInfo, element);
+
         _elementsById.Clear();
         _idsByElement.Clear();
 
@@ -301,6 +303,39 @@ internal sealed class PreviewSession : IDisposable
                 Message = "The document threw during layout/render; reverted to the previous content.",
                 Detail = broken.ToString(),
             });
+        }
+    }
+
+    /// <summary>
+    /// Applies the document's design-time metadata: <c>d:DesignWidth</c>/<c>d:DesignHeight</c>
+    /// constrain the root (the desktop chrome shows around it), and <c>d:DataContext</c> is
+    /// constructed and set so <c>{Binding}</c>s render against design data.
+    /// </summary>
+    private void ApplyDesignInfo(XamlDesignInfo? design, UIElement element)
+    {
+        if (design is null)
+            return;
+
+        if (design.DesignWidth is { } width)
+            element.SetValue(UIElement.WidthProperty, (int?)width);
+
+        if (design.DesignHeight is { } height)
+            element.SetValue(UIElement.HeightProperty, (int?)height);
+
+        if (design.DataContextType is { Activate: { } activate })
+        {
+            try
+            {
+                element.SetValue(UIElement.DataContextProperty, activate());
+            }
+            catch (Exception ex)
+            {
+                _emit(new ErrorEvent
+                {
+                    Message = $"The d:DataContext type '{design.DataContextType.ClrType.Name}' threw during construction.",
+                    Detail = ex.ToString(),
+                });
+            }
         }
     }
 

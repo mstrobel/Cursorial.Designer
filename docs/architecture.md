@@ -56,6 +56,12 @@ container is designer chrome: hit tests never report it. Parse errors keep the p
 on screen. User-assembly types resolve after `XamlSchemaContext.Default
 .RegisterAssembly`; Cursorial's built-in controls resolve out of the box.
 
+Design-time metadata: the front end (Cursorial `designer-time-metadata` branch) understands
+`mc:Ignorable` and the `d:` namespace (Blend URI or `https://cursorial.dev/xaml/design`). The
+root's `d:DesignWidth`/`d:DesignHeight` constrain the previewed root inside the desktop chrome,
+and `d:DataContext="vm:SomeViewModel"` is constructed and applied so `{Binding}`s render design
+data — with zero runtime cost, since the parser skips `d:` everywhere outside the designer.
+
 Not carried in v1: buffer fragments (Kitty/Sixel/iTerm2 images) — the cell grid ships without
 them; a later protocol rev can attach image payloads (the IDE can paint real pixels, which is
 strictly better than any terminal).
