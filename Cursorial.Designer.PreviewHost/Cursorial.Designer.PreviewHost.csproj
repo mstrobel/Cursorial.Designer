@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Cursorial.Designer.Protocol\Cursorial.Designer.Protocol.csproj" />
+    </ItemGroup>
+
+    <!--
+        The framework comes from the sibling Cursorial checkout (CursorialRepoRoot, set in
+        Directory.Build.props, overridable with -p:CursorialRepoRoot=...). Cursorial.UI.Testing
+        is the headless hosting substrate (SyntheticTerminalHost + manual frame stepping) — the
+        same engine the framework's own tests run on, which is exactly why the preview cannot
+        diverge from production rendering.
+    -->
+    <ItemGroup>
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Testing\Cursorial.UI.Testing.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Xaml\Cursorial.UI.Xaml.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Themes\Cursorial.UI.Themes.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="Cursorial.Designer.PreviewHost.Tests" />
+    </ItemGroup>
+
+</Project>

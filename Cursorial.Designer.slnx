@@ -1,0 +1,17 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+  </Configurations>
+  <Folder Name="/Docs/">
+    <File Path="docs/architecture.md" />
+    <File Path="docs/protocol.md" />
+  </Folder>
+  <Folder Name="/Resources/">
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Cursorial.Designer.PreviewHost.Tests/Cursorial.Designer.PreviewHost.Tests.csproj" />
+  </Folder>
+  <Project Path="Cursorial.Designer.Protocol/Cursorial.Designer.Protocol.csproj" />
+  <Project Path="Cursorial.Designer.PreviewHost/Cursorial.Designer.PreviewHost.csproj" />
+</Solution>

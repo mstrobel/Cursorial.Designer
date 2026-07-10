@@ -1,0 +1,16 @@
+bin/
+obj/
+.DS_Store
+/packages/
+riderModule.iml
+/_ReSharper.Caches/
+.idea/
+*.sln.DotSettings.user
+.claude/
+.scratch/
+
+# Gradle / IntelliJ plugin build outputs (plugin/)
+plugin/.gradle/
+plugin/build/
+plugin/.intellijPlatform/
+plugin/.kotlin/

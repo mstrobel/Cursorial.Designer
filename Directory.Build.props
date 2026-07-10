@@ -1,0 +1,39 @@
+<Project>
+
+  <!--
+    Shared metadata and packaging defaults for every .NET project in the repo, mirroring the
+    conventions of the sibling Cursorial repo. Per-package fields (PackageId, Version,
+    Description, PackageTags) live in the individual csprojs. Nothing here is packable yet —
+    the previewer ships inside the Rider plugin, not on NuGet; projects that later need to
+    pack opt in with <IsPackable>true</IsPackable>.
+  -->
+
+  <PropertyGroup>
+    <!-- Identity. -->
+    <Authors>Mike Strobel</Authors>
+    <Copyright>Copyright © 2026 Mike Strobel</Copyright>
+    <PackageProjectUrl>https://github.com/mstrobel/Cursorial.Designer</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mstrobel/Cursorial.Designer.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+
+    <!-- Non-packable by default; packable projects opt in. -->
+    <IsPackable>false</IsPackable>
+
+    <!--
+      Documentation. CS1591 (missing XML doc on public member) is suppressed to match the
+      Cursorial repo's posture while public-surface documentation catches up.
+    -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+
+    <Deterministic>true</Deterministic>
+
+    <!--
+      The previewer builds against the sibling Cursorial checkout via ProjectReference.
+      Override this (e.g. to point at a pinned worktree) with -p:CursorialRepoRoot=...
+    -->
+    <CursorialRepoRoot>$(MSBuildThisFileDirectory)..\Cursorial\</CursorialRepoRoot>
+  </PropertyGroup>
+
+</Project>
