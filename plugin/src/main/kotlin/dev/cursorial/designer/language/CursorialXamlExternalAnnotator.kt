@@ -66,14 +66,14 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
         }
 
         // Semantic highlighting: the host's classified token ranges, rendered as silent
-        // informational annotations. The frontend has no XML PSI for these files, so this is
-        // the only layer that knows an element from an attached property from an extension.
-        // Base kinds (comments, plain attributes, strings) apply only where no native lexer
-        // colors them — plain text; Rider's Xaml language already paints those natively.
+        // informational annotations — the only layer that knows an element from an attached
+        // property from an extension. Attribute names apply EVERYWHERE (XAML semantics: they
+        // are properties, and should color as such rather than as generic XML attributes);
+        // comments/strings apply only where no native lexer already paints them (plain text).
         val hasNativeLexer = file.language.id != "TEXT"
         for (token in result.tokens.orEmpty()) {
-            if (hasNativeLexer && token.k in baseKinds) continue
-            val key = tokenAttributes[token.k] ?: continue
+            if (hasNativeLexer && token.k in CursorialXamlColors.nativeLexerKinds) continue
+            val key = CursorialXamlColors.byKind[token.k] ?: continue
             val start = offsetOf(text, token.l, token.c) ?: continue
             val end = (start + token.n).coerceAtMost(text.length)
             if (end <= start) continue
@@ -83,35 +83,6 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
                 .textAttributes(key)
                 .create()
         }
-    }
-
-    private companion object {
-        /** Host token kinds → theme-aware attribute keys (fallbacks pick up the active scheme). */
-        val tokenAttributes: Map<String, TextAttributesKey> = mapOf(
-            "element" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_ELEMENT", DefaultLanguageHighlighterColors.CLASS_REFERENCE),
-            "attached" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_ATTACHED", DefaultLanguageHighlighterColors.STATIC_FIELD),
-            "directive" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_DIRECTIVE", DefaultLanguageHighlighterColors.METADATA),
-            "extension" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_EXTENSION", DefaultLanguageHighlighterColors.KEYWORD),
-            "comment" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_COMMENT", DefaultLanguageHighlighterColors.BLOCK_COMMENT),
-            // XAML convention: attributes color as PROPERTIES. Rider's scheme has a dedicated
-            // R# property key; fall back to the platform's instance-field color when it's not
-            // present (find() creates an empty key rather than failing).
-            "attribute" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_ATTRIBUTE",
-                TextAttributesKey.find("ReSharper.PROPERTY_IDENTIFIER")
-                    .takeIf { it.defaultAttributes != null }
-                    ?: DefaultLanguageHighlighterColors.INSTANCE_FIELD),
-            "string" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_STRING", DefaultLanguageHighlighterColors.STRING),
-        )
-
-        /** Kinds a native lexer already paints; applied only on plain-text files. */
-        val baseKinds = setOf("comment", "attribute", "string")
     }
 
     /** 1-based (line, column) to offset; null when the position falls outside the snapshot. */

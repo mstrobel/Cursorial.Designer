@@ -29,6 +29,7 @@
         <standardResourceProvider implementation="dev.cursorial.designer.language.CursorialXamlResourceProvider" />
         <xml.xmlSuppressionProvider implementation="dev.cursorial.designer.language.CursorialXamlSuppressionProvider" />
         <daemon.highlightInfoFilter implementation="dev.cursorial.designer.language.CursorialXamlHighlightFilter" />
+        <colorSettingsPage implementation="dev.cursorial.designer.language.CursorialXamlColorSettingsPage" />
 
         <externalAnnotator language="CursorialXaml"
                            implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
