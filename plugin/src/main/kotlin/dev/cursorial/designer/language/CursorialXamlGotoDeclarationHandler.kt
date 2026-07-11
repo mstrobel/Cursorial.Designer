@@ -20,7 +20,9 @@ import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
  */
 class CursorialXamlGotoDeclarationHandler : GotoDeclarationHandler {
 
-    private val logger = com.intellij.openapi.diagnostic.logger<CursorialXamlGotoDeclarationHandler>()
+    private companion object {
+        val logger = com.intellij.openapi.diagnostic.logger<CursorialXamlGotoDeclarationHandler>()
+    }
 
     /** Ctrl-hover re-queries the same offset every few ms; one host round trip per (doc-stamp, offset) is plenty. */
     private data class CacheKey(val document: com.intellij.openapi.editor.Document, val stamp: Long, val offset: Int)
@@ -70,8 +72,11 @@ class CursorialXamlGotoDeclarationHandler : GotoDeclarationHandler {
     ) : FakePsiElement(), Navigatable {
         override fun getParent(): PsiElement = sourceFile
         override fun getName(): String = symbolName
-        override fun navigate(requestFocus: Boolean) = descriptor.navigate(requestFocus)
-        override fun canNavigate(): Boolean = descriptor.canNavigate()
+        override fun navigate(requestFocus: Boolean) {
+            logger.info("target navigate(requestFocus=$requestFocus) -> ${descriptor.file.name}:${descriptor.line + 1}")
+            descriptor.navigate(requestFocus)
+        }
+        override fun canNavigate(): Boolean = descriptor.canNavigate().also { logger.info("target canNavigate=$it") }
         override fun canNavigateToSource(): Boolean = canNavigate()
 
         // The ctrl-hover tooltip and target popups present this element; without an explicit
