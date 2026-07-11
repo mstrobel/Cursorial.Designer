@@ -53,7 +53,7 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
 
         for (item in result.items) {
             val start = offsetOf(text, item.line, item.column) ?: continue
-            val end = tokenEnd(text, start)
+            val range = highlightRange(text, start) ?: continue
             val severity = when (item.severity) {
                 "error" -> HighlightSeverity.ERROR
                 "warning" -> HighlightSeverity.WARNING
@@ -61,7 +61,7 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
             }
 
             holder.newAnnotation(severity, "${item.code ?: "CUR"}: ${item.message}")
-                .range(TextRange(start, end))
+                .range(range)
                 .create()
         }
 
@@ -109,11 +109,23 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
         return target.takeIf { it in 0..text.length }
     }
 
-    /** Extends the highlight over the identifier-ish token at [start]; minimum one character. */
-    private fun tokenEnd(text: String, start: Int): Int {
-        var end = start
+    /**
+     * The identifier-ish token at [start]. Parser diagnostics anchor element errors on the tag
+     * START — the `<` (or `</`) — so leading brackets are skipped to squiggle the NAME rather
+     * than one bracket character. Falls back to a single character at the anchor; null only
+     * when the anchor is outside the text.
+     */
+    private fun highlightRange(text: String, start: Int): TextRange? {
+        if (start >= text.length) return if (text.isEmpty()) null else TextRange(text.length - 1, text.length)
+
+        var begin = start
+        if (text[begin] == '<') begin++
+        if (begin < text.length && text[begin] == '/') begin++
+
+        var end = begin
         while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '.' || text[end] == ':' || text[end] == '_'))
             end++
-        return maxOf(end, minOf(start + 1, text.length))
+
+        return if (end > begin) TextRange(begin, end) else TextRange(start, start + 1)
     }
 }
