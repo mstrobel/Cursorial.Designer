@@ -83,7 +83,10 @@ exits on Escape — WPF-style.
 {"type":"completions","replyTo":12,"items":[
   {"text":"Button","kind":"element","detail":"Cursorial.UI.Controls"},
   {"text":"Content","kind":"attribute"},
-  {"text":"Visible","kind":"value","detail":"Visibility"}]}
+  {"text":"Visible","kind":"value","detail":"Visibility"},
+  {"text":"ThemeKeys.PanelBrush","kind":"value","detail":"Theme.PanelBrush",
+   "insert":"{x:Static ThemeKeys.PanelBrush}"}]}  // insert: text to insert when it differs from
+                                                  // the display/match text (additive field)
 
 {"type":"error","replyTo":null,"message":"…","detail":"…"}
 {"type":"log","level":"debug|info|warn|error","message":"…"}

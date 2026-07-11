@@ -46,13 +46,18 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
                     .complete(document.text, line + 1, column, file) ?: return
 
                 for (item in completions.items)
-                    result.addElement(lookup(item.text, item.kind, item.detail))
+                    result.addElement(lookup(item.text, item.kind, item.detail, item.insert))
             }
         })
     }
 
-    private fun lookup(text: String, kind: String?, detail: String?): LookupElement {
-        var builder = LookupElementBuilder.create(text)
+    private fun lookup(text: String, kind: String?, detail: String?, insert: String?): LookupElement {
+        // When insert differs from the display text (e.g. {x:Static …} references), the inserted
+        // string is the element's payload while the display text drives matching/presentation.
+        var builder = if (insert != null)
+            LookupElementBuilder.create(insert).withPresentableText(text).withLookupString(text)
+        else
+            LookupElementBuilder.create(text)
         detail?.let { builder = builder.withTypeText(it, true) }
         builder = when (kind) {
             "element" -> builder.withIcon(AllIcons.Nodes.Class)

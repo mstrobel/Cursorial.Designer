@@ -235,8 +235,13 @@ public class EditorServiceTests : IDisposable
         _session.Execute(new CompleteCommand { Id = 42, Xaml = xaml, Line = 3, Column = 42 });
 
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
-        Assert.Contains(completions.Items, i => i is { Text: "PanelAccent", Detail: "document" });
-        Assert.Contains(completions.Items, i => i is { Text: "Theme.ElevationDesktop", Detail: "ThemeKeys" });
+        Assert.Contains(completions.Items, i => i is { Text: "PanelAccent", Detail: "document", Insert: null });
+
+        // *Keys entries display as Type.Field, show the literal as detail, and INSERT an
+        // x:Static reference — robust against value changes and symbol-validated at build.
+        var themed = Assert.Single(completions.Items, i => i.Text == "ThemeKeys.ElevationDesktop");
+        Assert.Equal("Theme.ElevationDesktop", themed.Detail);
+        Assert.Equal("{x:Static ThemeKeys.ElevationDesktop}", themed.Insert);
     }
 
     [Fact]

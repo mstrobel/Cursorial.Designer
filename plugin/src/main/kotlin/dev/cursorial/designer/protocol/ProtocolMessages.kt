@@ -330,12 +330,14 @@ data class CompletionsEvent(
 ) : PreviewerEvent
 
 data class CompletionItem(
-    /** The text to insert (may carry an xmlns prefix). */
+    /** Display/match text (also the inserted text when [insert] is null). */
     val text: String,
     /** "element", "attribute", or "value" — drives icon and insert handling. */
     val kind: String?,
     /** Optional detail (declaring CLR namespace, enum type, "directive"). */
     val detail: String? = null,
+    /** Text to insert when it differs from [text] (e.g. an {x:Static …} resource reference). */
+    val insert: String? = null,
 )
 
 data class PropertiesEvent(

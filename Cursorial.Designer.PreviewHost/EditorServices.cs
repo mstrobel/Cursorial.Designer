@@ -525,7 +525,7 @@ internal static partial class EditorServices
         switch (extension)
         {
             case "StaticResource" or "DynamicResource":
-                return ResourceKeyItems(xaml);
+                return ResourceKeyItems(xaml, namespaces, provider);
 
             case "x:Static":
                 return StaticPathItems(argument, namespaces, provider);
@@ -577,12 +577,20 @@ internal static partial class EditorServices
     [GeneratedRegex("\\w+:Name\\s*=\\s*\"([^\"]+)\"")]
     private static partial Regex NameAttribute();
 
-    /// <summary>Document x:Key values + the convention sweep of static <c>*Keys</c> classes with string constants.</summary>
-    private static List<CompletionItemInfo> ResourceKeyItems(string xaml)
+    /// <summary>
+    /// Document x:Key values (literal — they ARE literals) + the convention sweep of static
+    /// <c>*Keys</c> classes, whose entries display as <c>Type.Field</c> and insert an
+    /// <c>{x:Static Type.Field}</c> REFERENCE: robust against value changes, find-usages-able,
+    /// symbol-validated at build. Falls back to the literal value when the document declares no
+    /// intrinsics xmlns or the key type is unreachable from its namespaces.
+    /// </summary>
+    private static List<CompletionItemInfo> ResourceKeyItems(string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var items = new List<CompletionItemInfo>();
         foreach (Match match in KeyAttribute().Matches(xaml))
             items.Add(new CompletionItemInfo { Text = match.Groups[1].Value, Kind = "value", Detail = "document" });
+
+        var intrinsicsPrefix = namespaces.FirstOrDefault(n => n.Value == IntrinsicsUri).Key;
 
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
@@ -600,15 +608,47 @@ internal static partial class EditorServices
             {
                 if (!type.IsClass || !(type.IsAbstract && type.IsSealed) || !type.Name.EndsWith("Keys", StringComparison.Ordinal))
                     continue;
+
+                var typePrefix = intrinsicsPrefix is { Length: > 0 } ? XmlPrefixFor(type, namespaces, provider) : null;
                 foreach (var field in type.GetFields())
                 {
-                    if (field.IsLiteral && field.FieldType == typeof(string) && field.GetRawConstantValue() is string key)
+                    if (!field.IsLiteral || field.FieldType != typeof(string) || field.GetRawConstantValue() is not string key)
+                        continue;
+
+                    if (typePrefix is null)
+                    {
                         items.Add(new CompletionItemInfo { Text = key, Kind = "value", Detail = type.Name });
+                        continue;
+                    }
+
+                    var qualified = typePrefix.Length == 0 ? $"{type.Name}.{field.Name}" : $"{typePrefix}:{type.Name}.{field.Name}";
+                    items.Add(new CompletionItemInfo
+                    {
+                        Text = qualified,
+                        Kind = "value",
+                        Detail = key,
+                        Insert = "{" + $"{intrinsicsPrefix}:Static {qualified}" + "}",
+                    });
                 }
             }
         }
 
         return items.DistinctBy(i => i.Text).ToList();
+    }
+
+    /// <summary>
+    /// The document xmlns prefix under which <paramref name="type"/> resolves (empty string for
+    /// the default xmlns), or null when no declared namespace reaches it.
+    /// </summary>
+    private static string? XmlPrefixFor(Type type, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key.Length))
+        {
+            if (provider.TryGetType(uri, type.Name).Type?.ClrType.UnderlyingSystemType == type)
+                return prefix;
+        }
+
+        return null;
     }
 
     private static List<CompletionItemInfo> NamedElementItems(string xaml)

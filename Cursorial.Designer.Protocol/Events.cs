@@ -175,6 +175,13 @@ public sealed class CompletionItemInfo
 
     /// <summary>Optional detail shown alongside (e.g. the declaring CLR namespace, or the enum type).</summary>
     public string? Detail { get; init; }
+
+    /// <summary>
+    /// Text to insert when it differs from <see cref="Text"/> (which then serves as the display
+    /// and match string) — e.g. resource keys display as <c>ThemeKeys.ElevationDesktop</c> but
+    /// insert <c>{x:Static ThemeKeys.ElevationDesktop}</c>.
+    /// </summary>
+    public string? Insert { get; init; }
 }
 
 /// <summary>A command failed. The session stays alive; the previous content keeps rendering.</summary>
