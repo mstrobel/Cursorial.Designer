@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 
 using Cursorial.Designer.Protocol;
@@ -210,6 +211,13 @@ internal static partial class EditorServices
 
             case ContextKind.AttributeValue:
             {
+                var extensionItems = CompleteExtension(context.Prefix, xaml, namespaces, provider);
+                if (extensionItems is not null)
+                {
+                    items.AddRange(extensionItems);
+                    break;
+                }
+
                 var valueType = ResolveAttributeValueType(context, namespaces, provider);
                 var underlying = valueType is null ? null : Nullable.GetUnderlyingType(valueType) ?? valueType;
                 if (underlying is null)
@@ -337,6 +345,301 @@ internal static partial class EditorServices
 
         var type = ResolveElement(owner, namespaces, provider);
         return type?.TryGetMember(member)?.ValueType.UnderlyingSystemType;
+    }
+
+    // ── Markup-extension completion ────────────────────────────────────────────────────────────
+
+    private const string IntrinsicsUri = "https://cursorial.dev/xaml";
+    private static readonly string[] DesignUris =
+    [
+        "http://schemas.microsoft.com/expression/blend/2008",
+        "https://cursorial.dev/xaml/design",
+    ];
+
+    /// <summary>
+    /// Completion inside a markup extension, or null when the value carries no unclosed
+    /// <c>{</c> (plain-value completion applies). Handles nesting by anchoring on the
+    /// INNERMOST open brace: <c>{DynamicResource {x:Static Th</c> completes the x:Static.
+    /// </summary>
+    private static List<CompletionItemInfo>? CompleteExtension(
+        string valuePrefix, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var open = -1;
+        var depth = 0;
+        for (var i = valuePrefix.Length - 1; i >= 0; i--)
+        {
+            if (valuePrefix[i] == '}')
+                depth++;
+            else if (valuePrefix[i] == '{')
+            {
+                if (depth == 0)
+                {
+                    open = i;
+                    break;
+                }
+                depth--;
+            }
+        }
+
+        if (open < 0)
+            return null;
+
+        var body = valuePrefix[(open + 1)..].TrimStart();
+        if (body.StartsWith('}'))
+            return null; // "{}" escape: the rest is a literal
+
+        // Still typing the extension name itself.
+        if (!body.Any(char.IsWhiteSpace))
+            return CompleteExtensionNames(namespaces, provider);
+
+        var name = Canonical(new string(body.TakeWhile(c => !char.IsWhiteSpace(c)).ToArray()), namespaces);
+        var rest = body[(body.IndexOf(' ') is var space && space >= 0 ? space : body.Length)..];
+        var argument = rest[(rest.LastIndexOf(',') + 1)..].TrimStart();
+
+        var equals = argument.IndexOf('=');
+        return equals >= 0
+            ? CompleteExtensionNamedValue(name, argument[..equals].Trim(), xaml, namespaces, provider)
+            : CompleteExtensionArgument(name, argument, xaml, namespaces, provider);
+    }
+
+    /// <summary>Folds a prefixed intrinsic (<c>x:Static</c> under any prefix) to its canonical form.</summary>
+    private static string Canonical(string extensionName, Dictionary<string, string> namespaces)
+    {
+        var colon = extensionName.IndexOf(':');
+        if (colon <= 0)
+            return extensionName;
+        var prefix = extensionName[..colon];
+        return namespaces.TryGetValue(prefix, out var uri) && uri == IntrinsicsUri
+            ? "x:" + extensionName[(colon + 1)..]
+            : extensionName;
+    }
+
+    private static List<CompletionItemInfo> CompleteExtensionNames(
+        Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var items = new List<CompletionItemInfo>();
+
+        var intrinsicsPrefix = namespaces.FirstOrDefault(n => n.Value == IntrinsicsUri).Key;
+        foreach (var intrinsic in new[] { "Binding", "StaticResource", "DynamicResource", "TemplateBinding" })
+            items.Add(new CompletionItemInfo { Text = intrinsic, Kind = "value", Detail = "markup extension" });
+        if (intrinsicsPrefix is { Length: > 0 })
+        {
+            foreach (var intrinsic in new[] { "Static", "Type", "Null", "Reference" })
+                items.Add(new CompletionItemInfo { Text = $"{intrinsicsPrefix}:{intrinsic}", Kind = "value", Detail = "markup extension" });
+        }
+
+        // Custom extensions: MarkupExtension-derived types, Extension suffix stripped.
+        foreach (var (prefix, uri) in namespaces)
+        {
+            foreach (var name in provider.GetKnownTypeNames(uri))
+            {
+                var clr = provider.TryGetType(uri, name).Type?.ClrType.UnderlyingSystemType;
+                if (clr is null || !typeof(MarkupExtension).IsAssignableFrom(clr))
+                    continue;
+                var display = name.EndsWith("Extension", StringComparison.Ordinal) ? name[..^"Extension".Length] : name;
+                items.Add(new CompletionItemInfo
+                {
+                    Text = prefix.Length == 0 ? display : $"{prefix}:{display}",
+                    Kind = "value",
+                    Detail = "markup extension",
+                });
+            }
+        }
+
+        return items.DistinctBy(i => i.Text).ToList();
+    }
+
+    private static List<CompletionItemInfo> CompleteExtensionArgument(
+        string extension, string argument, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        switch (extension)
+        {
+            case "StaticResource" or "DynamicResource":
+                return ResourceKeyItems(xaml);
+
+            case "x:Static":
+                return StaticPathItems(argument, namespaces, provider);
+
+            case "x:Type":
+                return provider.GetKnownTypeNames(namespaces.GetValueOrDefault("", "https://cursorial.dev/ui"))
+                    .Select(n => new CompletionItemInfo { Text = n, Kind = "value" })
+                    .ToList();
+
+            case "x:Reference":
+                return NamedElementItems(xaml);
+
+            case "Binding":
+                return BindingArgumentItems(argument, xaml, namespaces, provider);
+
+            default:
+                return [];
+        }
+    }
+
+    private static List<CompletionItemInfo> CompleteExtensionNamedValue(
+        string extension, string parameter, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        if (extension == "Binding")
+        {
+            if (parameter == "ElementName")
+                return NamedElementItems(xaml);
+            if (parameter == "Path")
+                return BindingPathItems("", xaml, namespaces, provider);
+        }
+
+        // Enum/bool parameters (e.g. {Binding …, Mode=OneWay}) via the extension's own type.
+        var extensionType = ResolveElement(extension, namespaces, provider)
+            ?? ResolveElement(extension + "Extension", namespaces, provider);
+        var valueType = extensionType?.TryGetMember(parameter)?.ValueType.UnderlyingSystemType;
+        var underlying = valueType is null ? null : Nullable.GetUnderlyingType(valueType) ?? valueType;
+        if (underlying is null)
+            return [];
+        if (underlying.IsEnum)
+            return Enum.GetNames(underlying).Select(n => new CompletionItemInfo { Text = n, Kind = "value", Detail = underlying.Name }).ToList();
+        if (underlying == typeof(bool))
+            return [new CompletionItemInfo { Text = "True", Kind = "value" }, new CompletionItemInfo { Text = "False", Kind = "value" }];
+        return [];
+    }
+
+    [GeneratedRegex("\\w+:Key\\s*=\\s*\"([^\"]+)\"")]
+    private static partial Regex KeyAttribute();
+
+    [GeneratedRegex("\\w+:Name\\s*=\\s*\"([^\"]+)\"")]
+    private static partial Regex NameAttribute();
+
+    /// <summary>Document x:Key values + the convention sweep of static <c>*Keys</c> classes with string constants.</summary>
+    private static List<CompletionItemInfo> ResourceKeyItems(string xaml)
+    {
+        var items = new List<CompletionItemInfo>();
+        foreach (Match match in KeyAttribute().Matches(xaml))
+            items.Add(new CompletionItemInfo { Text = match.Groups[1].Value, Kind = "value", Detail = "document" });
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type[] types;
+            try
+            {
+                types = assembly.GetTypes();
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var type in types)
+            {
+                if (!type.IsClass || !(type.IsAbstract && type.IsSealed) || !type.Name.EndsWith("Keys", StringComparison.Ordinal))
+                    continue;
+                foreach (var field in type.GetFields())
+                {
+                    if (field.IsLiteral && field.FieldType == typeof(string) && field.GetRawConstantValue() is string key)
+                        items.Add(new CompletionItemInfo { Text = key, Kind = "value", Detail = type.Name });
+                }
+            }
+        }
+
+        return items.DistinctBy(i => i.Text).ToList();
+    }
+
+    private static List<CompletionItemInfo> NamedElementItems(string xaml)
+        => NameAttribute().Matches(xaml)
+            .Select(m => new CompletionItemInfo { Text = m.Groups[1].Value, Kind = "value", Detail = "x:Name" })
+            .DistinctBy(i => i.Text)
+            .ToList();
+
+    /// <summary>
+    /// <c>{x:Static Owner.Member}</c>: before the dot, types with public statics (static classes
+    /// very much included); after it, the owner's public static fields and properties.
+    /// </summary>
+    private static List<CompletionItemInfo> StaticPathItems(string argument, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var dot = argument.LastIndexOf('.');
+        if (dot < 0)
+        {
+            var items = new List<CompletionItemInfo>();
+            foreach (var (prefix, uri) in namespaces)
+            {
+                foreach (var name in provider.GetKnownTypeNames(uri))
+                {
+                    var clr = provider.TryGetType(uri, name).Type?.ClrType.UnderlyingSystemType;
+                    if (clr is null)
+                        continue;
+                    var hasStatics = clr.GetFields(BindingFlags.Public | BindingFlags.Static).Length > 0
+                        || clr.GetProperties(BindingFlags.Public | BindingFlags.Static).Length > 0;
+                    if (!hasStatics)
+                        continue;
+                    items.Add(new CompletionItemInfo { Text = prefix.Length == 0 ? name : $"{prefix}:{name}", Kind = "value" });
+                }
+            }
+
+            return items.DistinctBy(i => i.Text).ToList();
+        }
+
+        var owner = ResolveElement(argument[..dot], namespaces, provider)?.ClrType.UnderlyingSystemType;
+        if (owner is null)
+            return [];
+
+        var members = new List<CompletionItemInfo>();
+        foreach (var field in owner.GetFields(BindingFlags.Public | BindingFlags.Static))
+            members.Add(new CompletionItemInfo { Text = field.Name, Kind = "value", Detail = owner.Name });
+        foreach (var property in owner.GetProperties(BindingFlags.Public | BindingFlags.Static))
+            members.Add(new CompletionItemInfo { Text = property.Name, Kind = "value", Detail = owner.Name });
+        return members;
+    }
+
+    /// <summary>First positional Binding argument: data-context paths plus Binding's named parameters.</summary>
+    private static List<CompletionItemInfo> BindingArgumentItems(string argument, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var items = BindingPathItems(argument, xaml, namespaces, provider);
+
+        // Named parameters (Mode=, ElementName=, …) from the Binding type itself, only while the
+        // argument has no dots (a dotted path is unambiguous).
+        if (!argument.Contains('.'))
+        {
+            var binding = ResolveElement("Binding", namespaces, provider);
+            if (binding is not null)
+            {
+                foreach (var member in provider.GetKnownMemberNames(binding.ClrType))
+                    items.Add(new CompletionItemInfo { Text = member, Kind = "value", Detail = "parameter" });
+            }
+        }
+
+        return items.DistinctBy(i => i.Text).ToList();
+    }
+
+    /// <summary>Property paths rooted at the document's d:DataContext design type, dot-walking property types.</summary>
+    private static List<CompletionItemInfo> BindingPathItems(string path, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var designPrefixes = namespaces.Where(n => DesignUris.Contains(n.Value)).Select(n => n.Key).ToList();
+        string? dataContextName = null;
+        foreach (var prefix in designPrefixes)
+        {
+            var match = Regex.Match(xaml, Regex.Escape(prefix) + ":DataContext\\s*=\\s*\"([^\"]+)\"");
+            if (match.Success)
+            {
+                dataContextName = match.Groups[1].Value;
+                break;
+            }
+        }
+
+        if (dataContextName is null)
+            return [];
+
+        var current = ResolveElement(dataContextName, namespaces, provider)?.ClrType.UnderlyingSystemType;
+        if (current is null)
+            return [];
+
+        var segments = path.Split('.');
+        foreach (var segment in segments[..^1])
+        {
+            current = current?.GetProperty(segment, BindingFlags.Public | BindingFlags.Instance)?.PropertyType;
+            if (current is null)
+                return [];
+        }
+
+        return current!.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(p => new CompletionItemInfo { Text = p.Name, Kind = "value", Detail = p.PropertyType.Name })
+            .ToList();
     }
 
     private static int OffsetOf(string text, int line, int column)

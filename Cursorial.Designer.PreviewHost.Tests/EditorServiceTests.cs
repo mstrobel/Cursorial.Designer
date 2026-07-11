@@ -167,4 +167,79 @@ public class EditorServiceTests : IDisposable
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
         Assert.Empty(completions.Items);
     }
+
+    [Fact]
+    public void Complete_offers_markup_extension_names_after_open_brace()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 41, Xaml = xaml, Line = 2, Column = 23 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "Binding");
+        Assert.Contains(completions.Items, i => i.Text == "StaticResource");
+        Assert.Contains(completions.Items, i => i.Text == "DynamicResource");
+        Assert.Contains(completions.Items, i => i.Text == "x:Static");
+    }
+
+    [Fact]
+    public void Complete_offers_resource_keys_from_document_and_key_classes()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n" +
+                   "    <StackPanel.Resources><SolidColorBrush x:Key=\"PanelAccent\" Color=\"#3050c0\"/></StackPanel.Resources>\n" +
+                   "    <Border Background=\"{DynamicResource \n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 42, Xaml = xaml, Line = 3, Column = 42 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "PanelAccent", Detail: "document" });
+        Assert.Contains(completions.Items, i => i is { Text: "Theme.ElevationDesktop", Detail: "ThemeKeys" });
+    }
+
+    [Fact]
+    public void Complete_offers_static_types_then_members_for_x_static()
+    {
+        // Type position: statics very much included (ThemeKeys is a static class).
+        var typesXaml = $"<StackPanel {Xmlns}>\n    <Border Background=\"{{DynamicResource {{x:Static \n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 43, Xaml = typesXaml, Line = 2, Column = 53 });
+        var types = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(types.Items, i => i.Text == "ThemeKeys");
+
+        // Member position after the dot.
+        var membersXaml = $"<StackPanel {Xmlns}>\n    <Border Background=\"{{DynamicResource {{x:Static ThemeKeys.\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 44, Xaml = membersXaml, Line = 2, Column = 63 });
+        var members = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(members.Items, i => i is { Text: "ElevationDesktop", Detail: "ThemeKeys" });
+    }
+
+    [Fact]
+    public void Complete_offers_binding_paths_from_design_data_context()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = "<StackPanel " + Xmlns +
+                   " xmlns:d=\"http://schemas.microsoft.com/expression/blend/2008\"" +
+                   $" xmlns:t=\"{ns}\" d:DataContext=\"t:DesignViewModel\">\n" +
+                   "    <TextBlock Text=\"{Binding \n</StackPanel>";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 45,
+            Xaml = xaml,
+            Line = 2,
+            Column = 31,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Greeting", Detail: "String" });
+        Assert.Contains(completions.Items, i => i is { Text: "Mode", Detail: "parameter" });
+    }
+
+    [Fact]
+    public void Complete_offers_enum_values_for_binding_mode()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding Greeting, Mode=\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 46, Xaml = xaml, Line = 2, Column = 47 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "OneWay");
+        Assert.Contains(completions.Items, i => i.Text == "TwoWay");
+    }
 }
