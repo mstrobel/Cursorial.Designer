@@ -72,6 +72,31 @@ public class PreviewSessionTests : IDisposable
         => string.Join('\n', Fold().Lines.Select(runs => string.Concat(runs.Select(r => r.Text))));
 
     [Fact]
+    public void Space_reaches_text_input_as_a_character()
+    {
+        // Terminal parity: plain space arrives as Key.Character ' ' (Key.Space exists only for
+        // Ctrl+Space). Sending the named key meant buttons still pressed (they accept both
+        // forms) while TextBox text input silently dropped every space.
+        Initialize();
+        Load($"""<StackPanel {Xmlns}><TextBox x:Name="Input"/></StackPanel>""");
+
+        _session.Execute(new PointerCommand { Kind = "down", Column = 2, Row = 0 });
+        _session.Execute(new PointerCommand { Kind = "up", Column = 2, Row = 0 });
+        _session.Execute(new KeyCommand { Key = "a" });
+        _session.Execute(new KeyCommand { Key = "Space" });
+        _session.Execute(new KeyCommand { Key = "b" });
+
+        _session.Execute(new HitTestCommand { Id = 91, Column = 2, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var textBoxId = Assert.Single(hit.Elements, e => e.ElementType == "TextBox").ElementId;
+
+        _session.Execute(new GetPropertiesCommand { Id = 92, ElementId = textBoxId });
+        var properties = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
+        var text = Assert.Single(properties.Items, p => p.Name == "Text");
+        Assert.Equal("a b", text.Value);
+    }
+
+    [Fact]
     public void Load_window_root_shows_through_the_window_manager()
     {
         Initialize();

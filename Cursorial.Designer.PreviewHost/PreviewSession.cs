@@ -547,6 +547,12 @@ internal sealed class PreviewSession : IDisposable
             return;
         }
 
+        // Terminal parity: a real terminal delivers plain space as Key.Character ' ' (the
+        // printable path); Key.Space exists only for Ctrl+Space (the NUL byte). Sending the
+        // named key here meant TextBox text input never saw spaces.
+        if (key == Key.Space && !modifiers.HasFlag(KeyModifiers.Control))
+            key = Key.Character;
+
         switch (command.Kind)
         {
             case null or "press":
