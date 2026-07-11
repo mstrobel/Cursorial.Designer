@@ -31,19 +31,59 @@ class CursorialXamlExtendSelectionHandler : ExtendWordSelectionHandlerBase() {
         wordRange(editorText, cursorOffset, value) { it.isLetterOrDigit() || it == '_' || it == '.' || it == ':' }?.let(ranges::add)
 
         // Every balanced {…} group in the value containing the caret, innermost to outermost.
+        var innermost: TextRange? = null
         val open = ArrayDeque<Int>()
         for (i in value.startOffset until value.endOffset) {
             when (editorText[i]) {
                 '{' -> open.addLast(i)
                 '}' -> {
                     val start = open.removeLastOrNull() ?: continue
-                    if (cursorOffset in (start + 1)..i) ranges.add(TextRange(start, i + 1))
+                    if (cursorOffset in (start + 1)..i) {
+                        val group = TextRange(start, i + 1)
+                        ranges.add(group)
+                        if (innermost == null || group.startOffset > innermost!!.startOffset)
+                            innermost = group
+                    }
                 }
             }
         }
 
+        // The Param=Value (or positional argument) segment inside the innermost group — the
+        // rung between a value token and the whole extension. Segments split on top-level
+        // commas; the first one starts after the extension name.
+        innermost?.let { group ->
+            var i = group.startOffset + 1
+            while (i < group.endOffset && editorText[i].isWhitespace()) i++
+            while (i < group.endOffset && !editorText[i].isWhitespace() && editorText[i] != '}') i++ // extension name
+            var segmentStart = i
+            var depth = 0
+            var j = i
+            while (j < group.endOffset - 1) {
+                when (editorText[j]) {
+                    '{' -> depth++
+                    '}' -> depth--
+                    ',' -> if (depth == 0) {
+                        addTrimmedSegment(editorText, segmentStart, j, cursorOffset, ranges)
+                        segmentStart = j + 1
+                    }
+                }
+                j++
+            }
+            addTrimmedSegment(editorText, segmentStart, group.endOffset - 1, cursorOffset, ranges)
+        }
+
         ranges.add(value)
         return ranges.distinct()
+    }
+
+    /** Adds [from, until) trimmed of whitespace when it contains the caret and is non-empty. */
+    private fun addTrimmedSegment(text: CharSequence, from: Int, until: Int, cursorOffset: Int, ranges: MutableList<TextRange>) {
+        var start = from
+        while (start < until && text[start].isWhitespace()) start++
+        var end = until
+        while (end > start && text[end - 1].isWhitespace()) end--
+        if (end > start && cursorOffset in start..end)
+            ranges.add(TextRange(start, end))
     }
 
     /** The inside of the quoted attribute value containing [offset], or null when not in one. */
