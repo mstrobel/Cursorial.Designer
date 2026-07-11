@@ -684,9 +684,7 @@ internal static partial class EditorServices
                 return StaticPathItems(argument, namespaces, provider);
 
             case "x:Type":
-                return provider.GetKnownTypeNames(namespaces.GetValueOrDefault("", "https://cursorial.dev/ui"))
-                    .Select(n => new CompletionItemInfo { Text = n, Kind = "value" })
-                    .ToList();
+                return TypeNameItems(argument, namespaces, provider);
 
             case "x:Reference":
                 return NamedElementItems(xaml);

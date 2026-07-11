@@ -733,6 +733,27 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_types_in_x_type_extension()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = $"<StackPanel {Xmlns} xmlns:t=\"{ns}\">\n    <ContentControl Content=\"{{x:Type t:\n</StackPanel>";
+        var line2 = "    <ContentControl Content=\"{x:Type t:";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 117,
+            Xaml = xaml,
+            Line = 2,
+            Column = line2.Length + 1,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        // The positional argument is a type — narrowed by the typed prefix, bare names.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "DesignViewModel", Kind: "element" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Button");
+    }
+
+    [Fact]
     public void Complete_offers_grid_length_keywords()
     {
         var xaml = $"<ColumnDefinition {Xmlns} Width=\"\n";
