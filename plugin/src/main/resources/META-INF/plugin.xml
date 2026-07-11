@@ -17,9 +17,11 @@
 
         <!-- Editor services for Cursorial XAML (gated per-file to documents carrying the
              cursorial.dev xmlns; every other .xaml file is untouched). -->
-        <externalAnnotator language="XML"
+        <!-- language="any": in Rider, .xaml may be owned by Rider's own XAML file type rather
+             than plain XML; the implementations gate per-file on the cursorial.dev marker. -->
+        <externalAnnotator language="any"
                            implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
-        <completion.contributor language="XML"
+        <completion.contributor language="any"
                                 implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
 
         <!--

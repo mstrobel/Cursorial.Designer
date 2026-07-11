@@ -10,6 +10,8 @@ import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.icons.AllIcons
 import com.intellij.patterns.PlatformPatterns
+import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ProcessingContext
 import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
 
@@ -20,6 +22,10 @@ import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
  */
 class CursorialXamlCompletionContributor : CompletionContributor() {
 
+    private companion object {
+        val logger = logger<CursorialXamlCompletionContributor>()
+    }
+
     init {
         extend(CompletionType.BASIC, PlatformPatterns.psiElement(), object : CompletionProvider<CompletionParameters>() {
             override fun addCompletions(
@@ -29,6 +35,7 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
             ) {
                 val file = parameters.originalFile.virtualFile ?: return
                 if (!CursorialPreviewEditorProvider.isCursorialXaml(file)) return
+                logger.debug { "completing in ${'$'}{file.name} (language=${'$'}{parameters.originalFile.language.id})" }
 
                 val document = parameters.editor.document
                 val offset = parameters.offset

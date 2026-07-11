@@ -65,7 +65,7 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     /** Live diagnostics for a document snapshot; null when the service is unavailable or slow. */
     fun analyze(xaml: String, sourceUri: String?, contextFile: VirtualFile?, timeoutMs: Long = 5_000): DiagnosticsEvent? {
         val id = requestIds.incrementAndGet()
-        return request(id, timeoutMs) {
+        return request(id, timeoutMs, contextFile) {
             AnalyzeCommand(id, xaml, sourceUri, assembliesFor(contextFile))
         } as? DiagnosticsEvent
     }
@@ -73,7 +73,7 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     /** Completion items at a 1-based (line, column); null when unavailable or slow. */
     fun complete(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 2_000): CompletionsEvent? {
         val id = requestIds.incrementAndGet()
-        return request(id, timeoutMs) {
+        return request(id, timeoutMs, contextFile) {
             CompleteCommand(id, xaml, line, column, assembliesFor(contextFile))
         } as? CompletionsEvent
     }
@@ -81,8 +81,8 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     private fun assembliesFor(file: VirtualFile?): List<String> =
         file?.let { UserAssemblyLocator.locate(it).assemblies } ?: emptyList()
 
-    private fun request(id: Int, timeoutMs: Long, command: () -> dev.cursorial.designer.protocol.PreviewerCommand): PreviewerEvent? {
-        val host = ensureProcess() ?: return null
+    private fun request(id: Int, timeoutMs: Long, contextFile: VirtualFile?, command: () -> dev.cursorial.designer.protocol.PreviewerCommand): PreviewerEvent? {
+        val host = ensureProcess(contextFile) ?: return null
         val future = CompletableFuture<PreviewerEvent>()
         pending[id] = future
         if (!host.sendCommand(command())) {
@@ -98,10 +98,10 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     }
 
     @Synchronized
-    private fun ensureProcess(): PreviewHostProcess? {
+    private fun ensureProcess(contextFile: VirtualFile?): PreviewHostProcess? {
         process?.takeIf { it.isRunning }?.let { return it }
 
-        val hostDll = CursorialDesignerSettings.getInstance(project).previewHostDllPath()
+        val hostDll = CursorialDesignerSettings.getInstance(project).previewHostDllPath(contextFile)
         if (hostDll == null) {
             logger.info("Cursorial language service unavailable: PreviewHost dll not found")
             return null
