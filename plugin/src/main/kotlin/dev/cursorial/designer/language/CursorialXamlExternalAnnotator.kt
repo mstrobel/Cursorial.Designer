@@ -98,8 +98,14 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
                 "CURSORIAL_XAML_EXTENSION", DefaultLanguageHighlighterColors.KEYWORD),
             "comment" to TextAttributesKey.createTextAttributesKey(
                 "CURSORIAL_XAML_COMMENT", DefaultLanguageHighlighterColors.BLOCK_COMMENT),
+            // XAML convention: attributes color as PROPERTIES. Rider's scheme has a dedicated
+            // R# property key; fall back to the platform's instance-field color when it's not
+            // present (find() creates an empty key rather than failing).
             "attribute" to TextAttributesKey.createTextAttributesKey(
-                "CURSORIAL_XAML_ATTRIBUTE", DefaultLanguageHighlighterColors.INSTANCE_FIELD),
+                "CURSORIAL_XAML_ATTRIBUTE",
+                TextAttributesKey.find("ReSharper.PROPERTY_IDENTIFIER")
+                    .takeIf { it.defaultAttributes != null }
+                    ?: DefaultLanguageHighlighterColors.INSTANCE_FIELD),
             "string" to TextAttributesKey.createTextAttributesKey(
                 "CURSORIAL_XAML_STRING", DefaultLanguageHighlighterColors.STRING),
         )
