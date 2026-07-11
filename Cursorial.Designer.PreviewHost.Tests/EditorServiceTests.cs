@@ -83,6 +83,26 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_inside_resources_offers_the_whole_world()
+    {
+        // A resources property element accepts a replacing ResourceDictionary OR any keyed
+        // value (brushes, styles, templates) — object-typed values mean no narrowing.
+        _session.Execute(new CompleteCommand
+        {
+            Id = 33,
+            Xaml = $"<DockPanel {Xmlns}>\n  <DockPanel.Resources>\n    <So\n</DockPanel>",
+            Line = 3,
+            Column = 7,
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "SolidColorBrush");
+        Assert.Contains(completions.Items, i => i.Text == "Style");
+        Assert.Contains(completions.Items, i => i.Text == "ResourceDictionary");
+        Assert.DoesNotContain(completions.Items, i => i.Text == "AnimationDiagnostics");
+    }
+
+    [Fact]
     public void Complete_leaves_object_typed_content_unfiltered()
     {
         // Button.Content is object: a brush is a legitimate child, so no narrowing applies.

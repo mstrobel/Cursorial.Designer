@@ -160,8 +160,9 @@ internal static partial class EditorServices
             {
                 // Contextual filtering: only instantiable types (statics/interfaces/abstracts
                 // have no activation path), narrowed to what the insertion point accepts — a
-                // panel's children take UIElements, a property element takes its property's type.
-                var target = ResolveInsertionTargetType(context.ParentElement, namespaces, provider);
+                // panel's children take UIElements; a collection-typed property element accepts
+                // EITHER an instance of the property type (replace) OR its items (add).
+                var targets = ResolveInsertionTargets(context.ParentElement, namespaces, provider);
 
                 foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key, StringComparer.Ordinal))
                 {
@@ -172,7 +173,7 @@ internal static partial class EditorServices
                         var clr = candidate?.ClrType.UnderlyingSystemType;
                         if (candidate is null || !IsInstantiable(candidate, clr))
                             continue;
-                        if (target is not null && clr is not null && !target.IsAssignableFrom(clr))
+                        if (targets is not null && clr is not null && !targets.Any(t => t.IsAssignableFrom(clr)))
                             continue;
 
                         items.Add(new CompletionItemInfo
@@ -244,11 +245,12 @@ internal static partial class EditorServices
     }
 
     /// <summary>
-    /// What the insertion point accepts: a property element's property type, or the parent's
-    /// content property type (collections reduce to their item type). Null = no constraint —
-    /// object-typed content stays unfiltered rather than over-filtering.
+    /// What the insertion point accepts: the property (or content property) type itself — a
+    /// replacing instance — plus, for collection/dictionary types, their item type — an added
+    /// element. Null = no constraint: any object-typed side means anything goes (a resources
+    /// dictionary holds brushes, styles, templates, …), so we never over-filter.
     /// </summary>
-    private static Type? ResolveInsertionTargetType(string? parentElement, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    private static IReadOnlyList<Type>? ResolveInsertionTargets(string? parentElement, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         if (parentElement is null)
             return null;
@@ -270,11 +272,14 @@ internal static partial class EditorServices
         if (clr is null)
             return null;
 
-        var target = ItemTypeOf(clr) ?? clr;
-        return target == typeof(object) ? null : target;
+        var targets = new List<Type> { clr };
+        if (ItemTypeOf(clr) is { } item)
+            targets.Add(item);
+
+        return targets.Any(t => t == typeof(object)) ? null : targets;
     }
 
-    /// <summary>The element type of a collection-ish type, or null for non-collections.</summary>
+    /// <summary>The item (or dictionary value) type of a collection-ish type; null for non-collections.</summary>
     private static Type? ItemTypeOf(Type type)
     {
         foreach (var contract in type.GetInterfaces())
@@ -286,12 +291,17 @@ internal static partial class EditorServices
                 return contract.GetGenericArguments()[0];
             if (definition == typeof(IDictionary<,>))
                 return contract.GetGenericArguments()[1];
+
+            // Dictionary-shaped enumerables (e.g. ResourceDictionary : IEnumerable<KVP<object, object?>>).
+            if (definition == typeof(IEnumerable<>) &&
+                contract.GetGenericArguments()[0] is { IsGenericType: true } pair &&
+                pair.GetGenericTypeDefinition() == typeof(KeyValuePair<,>))
+                return pair.GetGenericArguments()[1];
         }
 
-        // Fallback: a public single-parameter Add (the XAML collection contract).
-        return type.GetMethods()
-            .FirstOrDefault(m => m.Name == "Add" && m.GetParameters().Length == 1)
-            ?.GetParameters()[0].ParameterType;
+        // Fallback: the XAML collection contracts — Add(item) or Add(key, value).
+        var add = type.GetMethods().FirstOrDefault(m => m.Name == "Add" && m.GetParameters().Length is 1 or 2);
+        return add?.GetParameters()[^1].ParameterType;
     }
 
     private static XamlType? ResolveElement(string elementName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
