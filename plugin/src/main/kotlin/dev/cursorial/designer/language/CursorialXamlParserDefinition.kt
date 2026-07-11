@@ -38,6 +38,7 @@ class CursorialXamlResourceProvider : StandardResourceProvider {
         registrar.addIgnoredResource("http://schemas.microsoft.com/expression/blend/2008")
         registrar.addIgnoredResource("http://schemas.openxmlformats.org/markup-compatibility/2006")
         registrar.addIgnoredResource("clr-namespace:*")
+        registrar.addIgnoredResource("using:*")
     }
 }
 
