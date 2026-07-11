@@ -218,6 +218,11 @@ internal static partial class EditorServices
                     break;
                 }
 
+                // A typed xmlns prefix ("<bars:") narrows to that namespace and the items are
+                // BARE names — the prefix is already in the buffer.
+                var typedColon = context.Prefix.IndexOf(':');
+                var prefixFilter = typedColon > 0 ? context.Prefix[..typedColon] : null;
+
                 // Contextual filtering: only instantiable types (statics/interfaces/abstracts
                 // have no activation path), narrowed to what the insertion point accepts — a
                 // panel's children take UIElements; a collection-typed property element accepts
@@ -226,6 +231,9 @@ internal static partial class EditorServices
 
                 foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key, StringComparer.Ordinal))
                 {
+                    if (prefixFilter is not null && prefix != prefixFilter)
+                        continue;
+
                     var clrNamespace = provider.GetClrNamespaces(uri).FirstOrDefault();
                     foreach (var name in provider.GetKnownTypeNames(uri))
                     {
@@ -238,7 +246,7 @@ internal static partial class EditorServices
 
                         items.Add(new CompletionItemInfo
                         {
-                            Text = prefix.Length == 0 ? name : $"{prefix}:{name}",
+                            Text = prefixFilter is not null || prefix.Length == 0 ? name : $"{prefix}:{name}",
                             Kind = "element",
                             Detail = clrNamespace,
                         });
@@ -250,7 +258,7 @@ internal static partial class EditorServices
                 // never surfaced), yet collections can ONLY be populated in element form.
                 // Scalar members stay behind the explicit "<Parent." gesture — offering every
                 // property here would be noise.
-                if (context.ParentElement is { } parentName2 && !parentName2.Contains('.')
+                if (prefixFilter is null && context.ParentElement is { } parentName2 && !parentName2.Contains('.')
                     && ResolveElement(parentName2, namespaces, provider) is { } parentType)
                 {
                     foreach (var member in provider.GetKnownMemberNames(parentType.ClrType))
@@ -346,12 +354,53 @@ internal static partial class EditorServices
                     items.Add(new CompletionItemInfo { Text = "True", Kind = "value" });
                     items.Add(new CompletionItemInfo { Text = "False", Kind = "value" });
                 }
+                else if (underlying == typeof(Type))
+                {
+                    // DataType-style properties take any type, not just elements (view-models!).
+                    items.AddRange(TypeNameItems(context.Prefix, namespaces, provider));
+                }
+                else if (underlying.Name == "GridLength")
+                {
+                    items.Add(new CompletionItemInfo { Text = "Auto", Kind = "value", Detail = "size to content" });
+                    items.Add(new CompletionItemInfo { Text = "*", Kind = "value", Detail = "star (weighted share)" });
+                }
 
                 break;
             }
         }
 
         return items;
+    }
+
+    /// <summary>
+    /// Every known type name across the document's namespaces, for Type-typed values. A typed
+    /// xmlns prefix in <paramref name="typed"/> narrows to that namespace with bare names (the
+    /// prefix is already in the buffer).
+    /// </summary>
+    private static List<CompletionItemInfo> TypeNameItems(string typed, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var typedColon = typed.IndexOf(':');
+        var prefixFilter = typedColon > 0 ? typed[..typedColon] : null;
+
+        var items = new List<CompletionItemInfo>();
+        foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key, StringComparer.Ordinal))
+        {
+            if (prefixFilter is not null && prefix != prefixFilter)
+                continue;
+
+            var clrNamespace = provider.GetClrNamespaces(uri).FirstOrDefault();
+            foreach (var name in provider.GetKnownTypeNames(uri))
+            {
+                items.Add(new CompletionItemInfo
+                {
+                    Text = prefixFilter is not null || prefix.Length == 0 ? name : $"{prefix}:{name}",
+                    Kind = "element",
+                    Detail = clrNamespace,
+                });
+            }
+        }
+
+        return items.DistinctBy(i => i.Text).ToList();
     }
 
     private static bool IsInstantiable(XamlType candidate, Type? clr)
@@ -548,7 +597,7 @@ internal static partial class EditorServices
 
         // Still typing the extension name itself.
         if (!body.Any(char.IsWhiteSpace))
-            return CompleteExtensionNames(namespaces, provider);
+            return CompleteExtensionNames(body, namespaces, provider);
 
         var name = Canonical(new string(body.TakeWhile(c => !char.IsWhiteSpace(c)).ToArray()), namespaces);
         var rest = body[(body.IndexOf(' ') is var space && space >= 0 ? space : body.Length)..];
@@ -573,22 +622,38 @@ internal static partial class EditorServices
     }
 
     private static List<CompletionItemInfo> CompleteExtensionNames(
-        Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+        string typed, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
+        // A typed xmlns prefix ("{x:", "{bars:") narrows to that namespace, bare names.
+        var typedColon = typed.IndexOf(':');
+        var prefixFilter = typedColon > 0 ? typed[..typedColon] : null;
+
         var items = new List<CompletionItemInfo>();
 
         var intrinsicsPrefix = namespaces.FirstOrDefault(n => n.Value == IntrinsicsUri).Key;
-        foreach (var intrinsic in new[] { "Binding", "StaticResource", "DynamicResource", "TemplateBinding" })
-            items.Add(new CompletionItemInfo { Text = intrinsic, Kind = "value", Detail = "markup extension" });
-        if (intrinsicsPrefix is { Length: > 0 })
+        if (prefixFilter is null)
+        {
+            foreach (var intrinsic in new[] { "Binding", "StaticResource", "DynamicResource", "TemplateBinding" })
+                items.Add(new CompletionItemInfo { Text = intrinsic, Kind = "value", Detail = "markup extension" });
+        }
+
+        if (intrinsicsPrefix is { Length: > 0 } && (prefixFilter is null || prefixFilter == intrinsicsPrefix))
         {
             foreach (var intrinsic in new[] { "Static", "Type", "Null", "Reference" })
-                items.Add(new CompletionItemInfo { Text = $"{intrinsicsPrefix}:{intrinsic}", Kind = "value", Detail = "markup extension" });
+                items.Add(new CompletionItemInfo
+                {
+                    Text = prefixFilter is not null ? intrinsic : $"{intrinsicsPrefix}:{intrinsic}",
+                    Kind = "value",
+                    Detail = "markup extension",
+                });
         }
 
         // Custom extensions: MarkupExtension-derived types, Extension suffix stripped.
         foreach (var (prefix, uri) in namespaces)
         {
+            if (prefixFilter is not null && prefix != prefixFilter)
+                continue;
+
             foreach (var name in provider.GetKnownTypeNames(uri))
             {
                 var clr = SafeResolve(provider, uri, name)?.ClrType.UnderlyingSystemType;
@@ -597,7 +662,7 @@ internal static partial class EditorServices
                 var display = name.EndsWith("Extension", StringComparison.Ordinal) ? name[..^"Extension".Length] : name;
                 items.Add(new CompletionItemInfo
                 {
-                    Text = prefix.Length == 0 ? display : $"{prefix}:{display}",
+                    Text = prefixFilter is not null || prefix.Length == 0 ? display : $"{prefix}:{display}",
                     Kind = "value",
                     Detail = "markup extension",
                 });

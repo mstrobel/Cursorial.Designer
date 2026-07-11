@@ -132,6 +132,13 @@ internal static partial class EditorServices
                     return;
                 }
 
+                // Type-typed values (DataType, x:TypeArguments-style) are type references.
+                if (type == typeof(Type) && Resolves(content.Trim()))
+                {
+                    Add(contentStart, content.Length, "element");
+                    return;
+                }
+
                 // Converter oddballs with a known literal grammar: GridLength is Auto (a
                 // keyword), fixed cells, or star with an optional weight.
                 if (type.Name == "GridLength")
@@ -441,7 +448,13 @@ internal static partial class EditorServices
 
             var nameGroup = tag.Groups[2];
             if (offset >= nameGroup.Index && offset <= nameGroup.Index + nameGroup.Length)
-                return SymbolFromName(nameGroup.Value, offset - nameGroup.Index, namespaces, provider);
+            {
+                var offsetInName = offset - nameGroup.Index;
+                var nameColon = nameGroup.Value.IndexOf(':');
+                if (nameColon > 0 && offsetInName <= nameColon)
+                    return XmlnsPrefixSymbol(blanked, documentPath, nameGroup.Value[..nameColon], namespaces);
+                return SymbolFromName(nameGroup.Value, offsetInName, namespaces, provider);
+            }
 
             var attributes = tag.Groups[3];
             foreach (Match attribute in AttributeToken().Matches(attributes.Value))
@@ -449,7 +462,13 @@ internal static partial class EditorServices
                 var attrName = attribute.Groups[1];
                 var nameStart = attributes.Index + attrName.Index;
                 if (offset >= nameStart && offset <= nameStart + attrName.Length)
-                    return SymbolFromAttribute(nameGroup.Value, attrName.Value, offset - nameStart, namespaces, provider);
+                {
+                    var offsetInAttr = offset - nameStart;
+                    var attrColon = attrName.Value.IndexOf(':');
+                    if (attrColon > 0 && offsetInAttr <= attrColon)
+                        return XmlnsPrefixSymbol(blanked, documentPath, attrName.Value[..attrColon], namespaces);
+                    return SymbolFromAttribute(nameGroup.Value, attrName.Value, offsetInAttr, namespaces, provider);
+                }
 
                 var value = attribute.Groups[2];
                 var valueStart = attributes.Index + value.Index;
@@ -470,6 +489,10 @@ internal static partial class EditorServices
     /// </summary>
     private static SymbolInfo? SymbolFromName(string name, int offsetInName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
+        var colon = name.IndexOf(':');
+        if (colon > 0 && offsetInName <= colon)
+            return null; // the xmlns PREFIX itself — resolved by the caller, which has the document
+
         var dot = name.IndexOf('.');
         if (dot > 0)
         {
@@ -1087,6 +1110,23 @@ internal static partial class EditorServices
         }
 
         return AmbientDataContextType(blanked, caretOffset, namespaces, provider);
+    }
+
+    /// <summary>The xmlns prefix as a symbol: hover shows the URI; definition jumps to the declaration.</summary>
+    private static SymbolInfo? XmlnsPrefixSymbol(string xaml, string? documentPath, string prefix, Dictionary<string, string> namespaces)
+    {
+        if (!namespaces.TryGetValue(prefix, out var uri))
+            return null;
+
+        var declaration = Regex.Match(xaml, "xmlns:" + Regex.Escape(prefix) + "\\s*=\\s*\"");
+        return new SymbolInfo(
+            $"xmlns:{prefix}",
+            $"xmlns:{prefix} = \"{uri}\"",
+            null,
+            null,
+            [],
+            null,
+            declaration.Success ? DocumentLocation(xaml, documentPath, declaration.Index) : null);
     }
 
     /// <summary>The CLR type of the element declaring <c>Name</c>/<c>x:Name</c> = <paramref name="name"/>.</summary>

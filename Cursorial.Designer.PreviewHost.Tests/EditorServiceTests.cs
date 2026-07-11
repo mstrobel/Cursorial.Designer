@@ -678,6 +678,88 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_narrows_element_names_by_typed_xmlns_prefix()
+    {
+        var ns = "clr-namespace:Cursorial.UI.Bars;assembly=Cursorial.UI.Bars";
+        var xaml = $"<StackPanel {Xmlns} xmlns:bars=\"{ns}\">\n    <bars:\n</StackPanel>";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 112,
+            Xaml = xaml,
+            Line = 2,
+            Column = 11,
+            Assemblies = [typeof(Cursorial.UI.Bars.Toolbar).Assembly.Location],
+        });
+
+        // The prefix is already typed: bare names, that namespace only.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Toolbar", Kind: "element" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Button");
+        Assert.DoesNotContain(completions.Items, i => i.Text.StartsWith("bars:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Complete_narrows_extension_names_by_typed_xmlns_prefix()
+    {
+        var xaml = $"<StackPanel {Xmlns} Tag=\"{{x:\n</StackPanel>";
+        var line1 = $"<StackPanel {Xmlns} Tag=\"{{x:";
+        _session.Execute(new CompleteCommand { Id = 113, Xaml = xaml, Line = 1, Column = line1.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Static" });
+        Assert.Contains(completions.Items, i => i is { Text: "Reference" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Binding"); // wrong namespace
+    }
+
+    [Fact]
+    public void Complete_offers_types_for_type_typed_attributes()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = $"<StackPanel {Xmlns} xmlns:t=\"{ns}\">\n    <DataTemplate DataType=\"t:\n</StackPanel>";
+        var line2 = "    <DataTemplate DataType=\"t:";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 114,
+            Xaml = xaml,
+            Line = 2,
+            Column = line2.Length + 1,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        // Type-typed values offer types — narrowed by the typed prefix, bare names.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "DesignViewModel", Kind: "element" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Button");
+    }
+
+    [Fact]
+    public void Complete_offers_grid_length_keywords()
+    {
+        var xaml = $"<ColumnDefinition {Xmlns} Width=\"\n";
+        var line1 = $"<ColumnDefinition {Xmlns} Width=\"";
+        _session.Execute(new CompleteCommand { Id = 115, Xaml = xaml, Line = 1, Column = line1.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Auto", Kind: "value" });
+        Assert.Contains(completions.Items, i => i is { Text: "*", Kind: "value" });
+    }
+
+    [Fact]
+    public void Definition_on_xmlns_prefix_jumps_to_declaration()
+    {
+        var ns = "clr-namespace:Cursorial.UI.Bars;assembly=Cursorial.UI.Bars";
+        var xaml = $"<StackPanel {Xmlns} xmlns:bars=\"{ns}\">\n    <bars:Toolbar/>\n</StackPanel>";
+        var line2 = "    <bars:Toolbar/>";
+        var column = line2.IndexOf("bars", StringComparison.Ordinal) + 2; // caret inside the prefix
+        _session.Execute(new DefinitionCommand { Id = 116, Xaml = xaml, Line = 2, Column = column, FilePath = "/tmp/View.xaml" });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal("/tmp/View.xaml", definition.File);
+        Assert.Equal(1, definition.Line); // the xmlns:bars declaration in the root tag
+        Assert.Contains("xmlns:bars", definition.Symbol);
+    }
+
+    [Fact]
     public void Complete_offers_pseudo_classes_in_selectors()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button:\n</StackPanel>";
