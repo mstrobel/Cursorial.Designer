@@ -194,6 +194,11 @@ class CursorialPreviewEditor(
     // it — '[' walks outward toward the root, ']' back inward. Pointer selection alone cannot
     // reach every layer of a deep templated tree.
     private var selectionChain: List<dev.cursorial.designer.protocol.HitTestElement> = emptyList()
+
+    // Element ids are HOST-scoped and invalidated wholesale by every successful load; a cached
+    // chain used after a reload draws "Unknown element id (stale after reload?)". Reloads clear
+    // the chain immediately and re-acquire it at the last hit cell once the new frame lands.
+    private var reselectAfterLoad = false
     private var selectionIndex: Int = 0
 
     private val document: Document? =
@@ -207,7 +212,10 @@ class CursorialPreviewEditor(
         override fun onEvent(event: PreviewerEvent) {
             when (event) {
                 is ReadyEvent -> onHostReady(event)
-                is FrameEvent -> onEdt { gridPanel.render(event) }
+                is FrameEvent -> onEdt {
+                    gridPanel.render(event)
+                    reselectAfterLoadIfNeeded()
+                }
                 is DiagnosticsEvent -> onEdt { showDiagnostics(event) }
                 is HitTestResultEvent -> onEdt { showHitTestResult(event) }
                 is PropertiesEvent -> onEdt { showProperties(event) }
@@ -226,7 +234,10 @@ class CursorialPreviewEditor(
             }
         }
 
-        override fun onTerminated(exitCode: Int, willRestart: Boolean) {
+        override fun onTerminated(exitCode: Int, willRestart: Boolean, expected: Boolean) {
+            // Deliberate endings (user restart, watcher restart, profile change, shutdown)
+            // already narrated themselves — only an unexpected death is a crash.
+            if (expected) return
             onEdt {
                 statusLabel.text =
                     if (willRestart) "Previewer crashed (exit code $exitCode); restarting…"
@@ -321,6 +332,16 @@ class CursorialPreviewEditor(
                 assemblies = located.assemblies,
             ),
         )
+
+        // The load invalidates the host's element-id space: drop the cached chain NOW (a walk
+        // or descent against old ids draws "stale after reload" errors) and re-acquire the
+        // selection at the last hit cell once the new frame lands.
+        onEdt {
+            if (selectionChain.isNotEmpty())
+                reselectAfterLoad = true
+            selectionChain = emptyList()
+            selectionIndex = 0
+        }
     }
 
     private var lastErrorCount = -1
@@ -344,6 +365,16 @@ class CursorialPreviewEditor(
         // tooltip is where their details live.
         statusLabel.toolTipText = if (errors.isEmpty()) null
             else "<html>" + errors.joinToString("<br>") { "${it.code} @${it.line}:${it.column} ${it.message}" } + "</html>"
+    }
+
+    /** After a reload invalidated the id space, re-acquire the selection at the last hit cell. */
+    private fun reselectAfterLoadIfNeeded() {
+        if (!reselectAfterLoad) return
+        reselectAfterLoad = false
+        val (column, row) = lastHitCell ?: return
+        val id = requestIds.incrementAndGet()
+        pendingHitTestId = id
+        hostProcess?.sendCommand(HitTestCommand(id, column, row))
     }
 
     private fun showHitTestResult(event: HitTestResultEvent) {

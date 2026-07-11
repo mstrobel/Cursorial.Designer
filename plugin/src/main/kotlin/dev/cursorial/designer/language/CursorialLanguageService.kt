@@ -62,7 +62,7 @@ class CursorialLanguageService(private val project: Project) : Disposable {
             pending.remove(replyTo)?.complete(event)
         }
 
-        override fun onTerminated(exitCode: Int, willRestart: Boolean) {
+        override fun onTerminated(exitCode: Int, willRestart: Boolean, expected: Boolean) {
             // Fail everything in flight; callers degrade gracefully (no squiggles, no items).
             val inFlight = pending.values.toList()
             pending.clear()

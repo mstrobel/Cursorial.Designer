@@ -49,8 +49,12 @@ class PreviewHostProcess(
         /** A line of host stderr output (host logs). Called on a background thread. */
         fun onStderrLine(line: String) {}
 
-        /** The process terminated. [willRestart] is false when this was a shutdown or the restart budget ran out. */
-        fun onTerminated(exitCode: Int, willRestart: Boolean) {}
+        /**
+         * The process terminated. [willRestart] is false when this was a shutdown or the restart
+         * budget ran out; [expected] is true for deliberate endings (user/watcher restart,
+         * shutdown, dispose) — only an unexpected death is a crash worth alarming about.
+         */
+        fun onTerminated(exitCode: Int, willRestart: Boolean, expected: Boolean = false) {}
     }
 
     companion object {
@@ -173,7 +177,7 @@ class PreviewHostProcess(
             }
         } catch (e: ExecutionException) {
             logger.warn("Failed to start preview host process", e)
-            fireTerminated(exitCode = -1, willRestart = false)
+            fireTerminated(exitCode = -1, willRestart = false, expected = true)
             return
         }
 
@@ -237,6 +241,7 @@ class PreviewHostProcess(
 
     private fun handleTermination(exitCode: Int) {
         val restart: Boolean
+        val expected: Boolean
         synchronized(stateLock) {
             processHandler = null
 
@@ -244,14 +249,15 @@ class PreviewHostProcess(
             if (ranHealthy) restartAttempts = 0
 
             val explicitRestart = restartPending.getAndSet(false)
+            expected = explicitRestart || shutdownRequested.get() || disposed.get()
             restart = !disposed.get() &&
                 !shutdownRequested.get() &&
                 (explicitRestart || (exitCode != 0 && restartAttempts < MAX_RESTART_ATTEMPTS))
             if (restart && !explicitRestart) restartAttempts++
         }
 
-        logger.info("Preview host terminated with exit code $exitCode (restart=$restart)")
-        fireTerminated(exitCode, restart)
+        logger.info("Preview host terminated with exit code $exitCode (restart=$restart, expected=$expected)")
+        fireTerminated(exitCode, restart, expected)
 
         if (restart) {
             AppExecutorUtil.getAppScheduledExecutorService().schedule(
@@ -264,10 +270,10 @@ class PreviewHostProcess(
         }
     }
 
-    private fun fireTerminated(exitCode: Int, willRestart: Boolean) {
+    private fun fireTerminated(exitCode: Int, willRestart: Boolean, expected: Boolean) {
         for (listener in listeners) {
             try {
-                listener.onTerminated(exitCode, willRestart)
+                listener.onTerminated(exitCode, willRestart, expected)
             } catch (t: Throwable) {
                 logger.error("Preview host termination listener failed", t)
             }
