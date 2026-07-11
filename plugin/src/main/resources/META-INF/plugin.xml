@@ -33,11 +33,11 @@
         <typedHandler implementation="dev.cursorial.designer.language.CursorialXamlTypedHandler" />
         <!-- Quick documentation + go-to-declaration, answered by the language service (XML-doc
              summaries from the assemblies' doc files; source locations from portable PDBs). -->
-        <lang.documentationProvider language="Xaml"
+        <lang.documentationProvider language="Xaml" order="first"
                                     implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
         <lang.documentationProvider language="TEXT"
                                     implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
-        <gotoDeclarationHandler implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
+        <gotoDeclarationHandler order="first" implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
         <!-- Ctrl+W steps through markup-extension structure ({x:Static Type.Member} nesting). -->
         <extendWordSelectionHandler implementation="dev.cursorial.designer.language.CursorialXamlExtendSelectionHandler" />
 

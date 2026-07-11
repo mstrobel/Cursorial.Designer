@@ -63,7 +63,7 @@ class CursorialXamlDocumentationProvider : AbstractDocumentationProvider() {
         return buildString {
             hover.signature?.let {
                 append(DocumentationMarkup.DEFINITION_START)
-                append(StringUtil.escapeXmlEntities(it))
+                append("<pre><code>").append(StringUtil.escapeXmlEntities(it)).append("</code></pre>")
                 append(DocumentationMarkup.DEFINITION_END)
             }
             if (hover.summary != null || hover.detail != null) {

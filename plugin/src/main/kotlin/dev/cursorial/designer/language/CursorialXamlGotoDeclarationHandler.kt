@@ -43,7 +43,7 @@ class CursorialXamlGotoDeclarationHandler : GotoDeclarationHandler {
             val (line, column) = positionOf(text, offset)
             val fresh = CursorialLanguageService.getInstance(file.project)
                 .definition(text, line, column, virtualFile)
-            logger.info("goto @$line:$column -> ${fresh?.symbol} at ${fresh?.file}:${fresh?.line}")
+            logger.info("goto ${virtualFile.name} @$line:$column -> ${fresh?.symbol} at ${fresh?.file}:${fresh?.line}")
             lastQuery = key to fresh
             fresh
         }
