@@ -574,6 +574,83 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Analyze_classifies_relative_source_modes()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding Path=X, RelativeSource={{RelativeSource Self}}}}\" Tag=\"{{Binding RelativeSource={{RelativeSource FindAncestor, AncestorType=DockPanel}}}}\"/>\n</StackPanel>";
+        _session.Execute(new AnalyzeCommand { Id = 104, Xaml = xaml, Classify = true });
+
+        var tokens = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent)).Tokens!;
+        Assert.Contains(tokens, t => t is { Kind: "enumValue", Length: 4 });   // Self (shorthand)
+        Assert.Contains(tokens, t => t is { Kind: "enumValue", Length: 12 });  // FindAncestor
+        Assert.Contains(tokens, t => t is { Kind: "element", Length: 9 });     // DockPanel (AncestorType)
+    }
+
+    [Fact]
+    public void Complete_infers_binding_source_from_relative_source_self()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding RelativeSource={{RelativeSource Self}}, Path=\n</StackPanel>";
+        var line2 = "    <TextBlock Text=\"{Binding RelativeSource={RelativeSource Self}, Path=";
+        _session.Execute(new CompleteCommand { Id = 105, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        // Self anchors the binding at the TextBlock itself.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "Text");
+        Assert.Contains(completions.Items, i => i.Text == "Visibility");
+    }
+
+    [Fact]
+    public void Complete_infers_binding_source_from_find_ancestor()
+    {
+        var xaml = $"<DockPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding RelativeSource={{RelativeSource FindAncestor, AncestorType=DockPanel}}, Path=\n</DockPanel>";
+        var line2 = "    <TextBlock Text=\"{Binding RelativeSource={RelativeSource FindAncestor, AncestorType=DockPanel}, Path=";
+        _session.Execute(new CompleteCommand { Id = 106, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        // FindAncestor anchors at the declared AncestorType.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "LastChildFill");
+    }
+
+    [Fact]
+    public void Complete_offers_relative_source_modes_and_parameters()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Tag=\"{{Binding RelativeSource={{RelativeSource \n</StackPanel>";
+        var line2 = "    <TextBlock Tag=\"{Binding RelativeSource={RelativeSource ";
+        _session.Execute(new CompleteCommand { Id = 108, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Self", Detail: "RelativeSourceMode" });
+        Assert.Contains(completions.Items, i => i is { Text: "FindAncestor" });
+        Assert.Contains(completions.Items, i => i is { Text: "Mode", Detail: "parameter" });
+        Assert.Contains(completions.Items, i => i is { Text: "AncestorType", Detail: "parameter" });
+    }
+
+    [Fact]
+    public void Complete_offers_relative_source_shorthands_for_the_parameter()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Tag=\"{{Binding RelativeSource=\n</StackPanel>";
+        var line2 = "    <TextBlock Tag=\"{Binding RelativeSource=";
+        _session.Execute(new CompleteCommand { Id = 109, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        var self = Assert.Single(completions.Items, i => i.Text == "Self");
+        Assert.Equal("{RelativeSource Self}", self.Insert);
+        var ancestor = Assert.Single(completions.Items, i => i.Text == "FindAncestor");
+        Assert.Equal("{RelativeSource FindAncestor, AncestorType=}", ancestor.Insert);
+    }
+
+    [Fact]
+    public void Hover_resolves_relative_source_modes()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding Path=X, RelativeSource={{RelativeSource Self}}}}\"/>\n</StackPanel>";
+        var line2 = "    <TextBlock Text=\"{Binding Path=X, RelativeSource={RelativeSource Self}}\"/>";
+        var column = line2.IndexOf("Self", StringComparison.Ordinal) + 2;
+        _session.Execute(new HoverCommand { Id = 107, Xaml = xaml, Line = 2, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("RelativeSourceMode.Self", hover.Signature);
+    }
+
+    [Fact]
     public void Complete_offers_pseudo_classes_in_selectors()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button:\n</StackPanel>";

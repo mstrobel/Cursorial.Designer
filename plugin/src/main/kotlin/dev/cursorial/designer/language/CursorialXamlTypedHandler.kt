@@ -20,9 +20,9 @@ class CursorialXamlTypedHandler : TypedHandlerDelegate() {
 
     override fun checkAutoPopup(charTyped: Char, project: Project, editor: Editor, file: PsiFile): Result {
         // ':', '#', '.', and '/' start pseudo-class / named-element / style-class /
-        // template-combinator tokens in selectors (and '.' starts attached properties in
-        // attribute names); pop completion.
-        if (charTyped != ':' && charTyped != '#' && charTyped != '.' && charTyped != '/') return Result.CONTINUE
+        // template-combinator tokens in selectors ('.' also starts attached properties in
+        // attribute names); '=' starts extension parameter values ({Binding Path=…}).
+        if (charTyped != ':' && charTyped != '#' && charTyped != '.' && charTyped != '/' && charTyped != '=') return Result.CONTINUE
         val virtualFile = file.virtualFile ?: return Result.CONTINUE
         if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return Result.CONTINUE
         com.intellij.codeInsight.AutoPopupController.getInstance(project).scheduleAutoPopup(editor)

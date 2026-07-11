@@ -252,6 +252,11 @@ internal static partial class EditorServices
                 case "Binding" or "TemplateBinding" when index == 0:
                     Add(absStart, token.Length, "bindingPath");
                     break;
+
+                case "RelativeSource" when index == 0:
+                    if (ParameterValueKind("RelativeSource", "Mode", token) is { } modeKind)
+                        Add(absStart, token.Length, modeKind); // shorthand {RelativeSource Self}
+                    break;
             }
         }
 
@@ -317,6 +322,8 @@ internal static partial class EditorServices
                 return "elementRef";
             if (extensionName == "Binding" && parameter == "Path")
                 return "bindingPath";
+            if (parameter == "AncestorType")
+                return Resolves(value) ? "element" : null;
 
             var extensionType = ResolveElement(extensionName, namespaces, provider)
                 ?? ResolveElement(extensionName + "Extension", namespaces, provider);
@@ -657,8 +664,10 @@ internal static partial class EditorServices
 
         if (parameterName == "ElementName")
             return NamedElementSymbol(xaml, documentPath, token);
+        if (parameterName == "AncestorType")
+            return SymbolFromName(token, offsetInValue - start, namespaces, provider);
         if (parameterName == "Path" && canonical is "Binding")
-            return BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, token, namespaces, provider);
+            return BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, elementName, token, namespaces, provider);
         if (parameterName is not null)
         {
             var extensionType = (ResolveElement(rawExtensionName, namespaces, provider) ?? ResolveElement(rawExtensionName + "Extension", namespaces, provider))
@@ -673,7 +682,8 @@ internal static partial class EditorServices
         {
             "StaticResource" or "DynamicResource" => ResourceKeySymbol(xaml, documentPath, token),
             "x:Reference" => NamedElementSymbol(xaml, documentPath, token),
-            "Binding" or "TemplateBinding" => BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, token, namespaces, provider),
+            "Binding" or "TemplateBinding" => BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, elementName, token, namespaces, provider),
+            "RelativeSource" => RelativeSourceModeSymbol(token, namespaces, provider),
             _ => null,
         };
     }
@@ -953,6 +963,16 @@ internal static partial class EditorServices
             DocumentLocation(xaml, documentPath, parent.Groups[2].Index));
     }
 
+    /// <summary>The shorthand {RelativeSource Self|TemplatedParent|FindAncestor} mode as an enum member.</summary>
+    private static SymbolInfo? RelativeSourceModeSymbol(string token, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var modeType = (ResolveElement("RelativeSource", namespaces, provider) ?? ResolveElement("RelativeSourceExtension", namespaces, provider))
+            ?.ClrType.UnderlyingSystemType
+            ?.GetProperty("Mode", BindingFlags.Public | BindingFlags.Instance)?.PropertyType;
+        var underlying = modeType is null ? null : Nullable.GetUnderlyingType(modeType) ?? modeType;
+        return underlying is { IsEnum: true } ? EnumMemberSymbol(underlying, token) : null;
+    }
+
     /// <summary>An enum member as a symbol: docs from its field, definition via the enum's declaration.</summary>
     private static SymbolInfo? EnumMemberSymbol(Type enumType, string token)
     {
@@ -1028,11 +1048,26 @@ internal static partial class EditorServices
     /// element's type); else the nearest ancestor <c>DataTemplate DataType</c> or
     /// <c>d:DataContext</c> (the root included — subsuming the old root-only behavior).
     /// </summary>
-    internal static Type? BindingSourceType(string blanked, int caretOffset, string extensionBody, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    internal static Type? BindingSourceType(string blanked, int caretOffset, string extensionBody, string hostElementName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var elementName = Regex.Match(extensionBody, "\\bElementName\\s*=\\s*([A-Za-z_][\\w-]*)");
         if (elementName.Success)
             return NamedElementType(blanked, elementName.Groups[1].Value, namespaces, provider);
+
+        // RelativeSource anchors: Self → the host element's own type; FindAncestor → the
+        // declared AncestorType; TemplatedParent is statically unknowable (no completion).
+        var relativeSource = Regex.Match(extensionBody, "\\bRelativeSource\\b[^}]*");
+        if (relativeSource.Success)
+        {
+            var segment = relativeSource.Value;
+            var ancestor = Regex.Match(segment, "\\bAncestorType\\s*=\\s*([A-Za-z_][\\w:.]*)");
+            if (ancestor.Success)
+                return ResolveElement(ancestor.Groups[1].Value, namespaces, provider)?.ClrType.UnderlyingSystemType;
+            if (Regex.IsMatch(segment, "\\bSelf\\b"))
+                return ResolveElement(hostElementName, namespaces, provider)?.ClrType.UnderlyingSystemType;
+            if (Regex.IsMatch(segment, "\\bTemplatedParent\\b"))
+                return null;
+        }
 
         return AmbientDataContextType(blanked, caretOffset, namespaces, provider);
     }
@@ -1120,9 +1155,9 @@ internal static partial class EditorServices
     }
 
     /// <summary>A binding path resolved against the inferred binding source (ElementName / DataTemplate DataType / d:DataContext).</summary>
-    private static SymbolInfo? BindingPathSymbol(string xaml, int caretOffset, string extensionBody, string path, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    private static SymbolInfo? BindingPathSymbol(string xaml, int caretOffset, string extensionBody, string hostElementName, string path, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        var current = BindingSourceType(xaml, caretOffset, extensionBody, namespaces, provider);
+        var current = BindingSourceType(xaml, caretOffset, extensionBody, hostElementName, namespaces, provider);
         if (current is null || path.Length == 0)
             return null;
 
