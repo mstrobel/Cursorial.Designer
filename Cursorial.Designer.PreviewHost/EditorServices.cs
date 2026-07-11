@@ -717,6 +717,8 @@ internal static partial class EditorServices
             return Enum.GetNames(underlying).Select(n => new CompletionItemInfo { Text = n, Kind = "value", Detail = underlying.Name }).ToList();
         if (underlying == typeof(bool))
             return [new CompletionItemInfo { Text = "True", Kind = "value" }, new CompletionItemInfo { Text = "False", Kind = "value" }];
+        if (underlying == typeof(Type))
+            return SelectorTypeItems(namespaces, provider); // AncestorType= and friends: element types
         return [];
     }
 

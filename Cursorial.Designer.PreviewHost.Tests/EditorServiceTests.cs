@@ -641,6 +641,19 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_element_types_for_ancestor_type()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Tag=\"{{Binding RelativeSource={{RelativeSource FindAncestor, AncestorType=\n</StackPanel>";
+        var line2 = "    <TextBlock Tag=\"{Binding RelativeSource={RelativeSource FindAncestor, AncestorType=";
+        _session.Execute(new CompleteCommand { Id = 110, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "DockPanel", Kind: "element" });
+        Assert.Contains(completions.Items, i => i is { Text: "Button", Kind: "element" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "SolidColorBrush"); // not a UIElement
+    }
+
+    [Fact]
     public void Hover_resolves_relative_source_modes()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding Path=X, RelativeSource={{RelativeSource Self}}}}\"/>\n</StackPanel>";
