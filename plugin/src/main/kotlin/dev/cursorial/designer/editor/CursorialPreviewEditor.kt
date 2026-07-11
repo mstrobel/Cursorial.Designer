@@ -265,7 +265,9 @@ class CursorialPreviewEditor(
                 is PropertiesEvent -> onEdt { showProperties(event) }
                 is CellSamplesEvent -> onEdt { showCellSamples(event) }
                 is ChildrenEvent -> logger.info("children(replyTo=${event.replyTo}): ${event.elements.size} of #${event.parentId}")
-                is dev.cursorial.designer.protocol.CompletionsEvent -> {} // language-service reply; not for preview editors
+                is dev.cursorial.designer.protocol.CompletionsEvent,
+                is dev.cursorial.designer.protocol.HoverInfoEvent,
+                is dev.cursorial.designer.protocol.DefinitionEvent -> {} // language-service replies; not for preview editors
                 is ErrorEvent -> onEdt { statusLabel.text = "Previewer error: ${event.message}" }
                 is LogEvent -> logger.info("PreviewHost [${event.level}]: ${event.message}")
                 is UnknownEvent -> logger.warn("Unknown event type \"${event.type}\" from preview host")

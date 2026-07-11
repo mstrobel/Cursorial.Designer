@@ -117,6 +117,12 @@ internal sealed class PreviewSession : IDisposable
                     Items = EditorServices.Complete(complete.Xaml, complete.Line, complete.Column),
                 });
                 break;
+            case HoverCommand hover:
+                Hover(hover);
+                break;
+            case DefinitionCommand definition:
+                Definition(definition);
+                break;
             case SetThemeCommand theme:
                 ApplyTheme(Host(command).Application, theme.ThemeBase, theme.ColorTier);
                 SettleAndEmitFrame();
@@ -391,7 +397,44 @@ internal sealed class PreviewSession : IDisposable
         RegisterAssemblies(command.Assemblies, command.Id);
         var uri = command.SourceUri is { } s && Uri.TryCreate(s, UriKind.Absolute, out var parsed) ? parsed : null;
         var document = _loader.Parse(command.Xaml, uri);
-        _emit(new DiagnosticsEvent { ReplyTo = command.Id, SourceUri = command.SourceUri, Items = ToDiagnosticInfos(document.Diagnostics) });
+        _emit(new DiagnosticsEvent
+        {
+            ReplyTo = command.Id,
+            SourceUri = command.SourceUri,
+            Items = ToDiagnosticInfos(document.Diagnostics),
+            Tokens = command.Classify == true ? EditorServices.ClassifyTokens(command.Xaml) : null,
+        });
+    }
+
+    /// <summary>Editor service: symbol info at a position — signature, XML-doc summary, value detail.</summary>
+    private void Hover(HoverCommand command)
+    {
+        RegisterAssemblies(command.Assemblies, command.Id);
+        var symbol = EditorServices.SymbolAt(command.Xaml, command.Line, command.Column);
+        var summary = symbol is { Owner: { } owner, DocIds.Count: > 0 } ? EditorServices.XmlSummary(owner, symbol.DocIds) : null;
+        _emit(new HoverInfoEvent
+        {
+            ReplyTo = command.Id,
+            Signature = symbol?.Signature,
+            Summary = summary,
+            Detail = symbol?.Detail,
+        });
+    }
+
+    /// <summary>Editor service: source location of the symbol at a position, via portable PDBs.</summary>
+    private void Definition(DefinitionCommand command)
+    {
+        RegisterAssemblies(command.Assemblies, command.Id);
+        var symbol = EditorServices.SymbolAt(command.Xaml, command.Line, command.Column);
+        var location = symbol?.Owner is { } owner ? EditorServices.SourceLocationOf(owner, symbol.Member) : null;
+        _emit(new DefinitionEvent
+        {
+            ReplyTo = command.Id,
+            File = location?.File,
+            Line = location?.Line,
+            Column = location?.Column,
+            Symbol = symbol?.Display,
+        });
     }
 
     private static List<DiagnosticInfo> ToDiagnosticInfos(IReadOnlyList<XamlDiagnostic> diagnostics)

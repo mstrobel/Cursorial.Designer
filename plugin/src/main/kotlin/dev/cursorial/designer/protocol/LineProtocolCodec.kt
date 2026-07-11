@@ -26,6 +26,8 @@ object LineProtocolCodec {
         "children" to ChildrenEvent::class.java,
         "cellSamples" to CellSamplesEvent::class.java,
         "completions" to CompletionsEvent::class.java,
+        "hoverInfo" to HoverInfoEvent::class.java,
+        "definition" to DefinitionEvent::class.java,
         "properties" to PropertiesEvent::class.java,
         "error" to ErrorEvent::class.java,
         "log" to LogEvent::class.java,

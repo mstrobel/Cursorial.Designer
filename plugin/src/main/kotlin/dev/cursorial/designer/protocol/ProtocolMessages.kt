@@ -128,8 +128,34 @@ data class AnalyzeCommand(
     val xaml: String,
     val sourceUri: String? = null,
     val assemblies: List<String> = emptyList(),
+    /** When true, the answering [DiagnosticsEvent] also carries semantic [DiagnosticsEvent.tokens]. */
+    val classify: Boolean? = null,
 ) : PreviewerCommand {
     override val type: String = "analyze"
+}
+
+/** Editor service: symbol info (signature/docs/value) at a 1-based position. Valid before initialize. */
+data class HoverCommand(
+    /** Correlation id echoed back as `replyTo` on the [HoverInfoEvent]. */
+    val id: Int,
+    val xaml: String,
+    val line: Int,
+    val column: Int,
+    val assemblies: List<String> = emptyList(),
+) : PreviewerCommand {
+    override val type: String = "hover"
+}
+
+/** Editor service: source location of the symbol at a 1-based position (portable PDB). Valid before initialize. */
+data class DefinitionCommand(
+    /** Correlation id echoed back as `replyTo` on the [DefinitionEvent]. */
+    val id: Int,
+    val xaml: String,
+    val line: Int,
+    val column: Int,
+    val assemblies: List<String> = emptyList(),
+) : PreviewerCommand {
+    override val type: String = "definition"
 }
 
 /** Editor service: completion at a 1-based position. Valid before initialize. */
@@ -247,6 +273,42 @@ data class DiagnosticsEvent(
     val replyTo: Int?,
     val sourceUri: String?,
     val items: List<DiagnosticItem>,
+    /** Semantic token ranges; present only when the analyze command set [AnalyzeCommand.classify]. */
+    val tokens: List<TokenRange>? = null,
+) : PreviewerEvent
+
+/** One classified token range for semantic highlighting (1-based line/column). */
+data class TokenRange(
+    /** Line (1-based). */
+    val l: Int,
+    /** Column (1-based). */
+    val c: Int,
+    /** Length in characters. */
+    val n: Int,
+    /** "element", "attached", "directive", or "extension". */
+    val k: String,
+)
+
+/** Answer to [HoverCommand]; all-null members mean "nothing at this position". */
+data class HoverInfoEvent(
+    val replyTo: Int?,
+    /** Code-ish one-liner, e.g. `class Cursorial.UI.Controls.Button : ContentControl`. */
+    val signature: String?,
+    /** XML-doc summary text, when the assembly ships a doc file. */
+    val summary: String?,
+    /** Extra fact (a constant's value, the declaring assembly). */
+    val detail: String?,
+) : PreviewerEvent
+
+/** Answer to [DefinitionCommand]; all-null members mean "no source location". */
+data class DefinitionEvent(
+    val replyTo: Int?,
+    /** Absolute path as recorded in the PDB — verify it exists locally before navigating. */
+    val file: String?,
+    val line: Int?,
+    val column: Int?,
+    /** Display name of the resolved symbol. */
+    val symbol: String?,
 ) : PreviewerEvent
 
 data class DiagnosticItem(

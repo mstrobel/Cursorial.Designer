@@ -3,6 +3,8 @@ package dev.cursorial.designer.language
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.ExternalAnnotator
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
+import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
 import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
@@ -30,7 +32,7 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
     override fun doAnnotate(collected: Source?): Result? {
         val source = collected ?: return null
         val diagnostics = CursorialLanguageService.getInstance(source.file.project)
-            .analyze(source.text, source.file.virtualFile?.url, source.file.virtualFile) ?: return null
+            .analyze(source.text, source.file.virtualFile?.url, source.file.virtualFile, classify = true) ?: return null
         return Result(source, diagnostics)
     }
 
@@ -55,6 +57,35 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
                 .range(TextRange(start, end))
                 .create()
         }
+
+        // Semantic highlighting: the host's classified token ranges, rendered as silent
+        // informational annotations. The frontend has no XML PSI for these files, so this is
+        // the only layer that knows an element from an attached property from an extension.
+        for (token in result.tokens.orEmpty()) {
+            val key = tokenAttributes[token.k] ?: continue
+            val start = offsetOf(text, token.l, token.c) ?: continue
+            val end = (start + token.n).coerceAtMost(text.length)
+            if (end <= start) continue
+
+            holder.newSilentAnnotation(HighlightSeverity.INFORMATION)
+                .range(TextRange(start, end))
+                .textAttributes(key)
+                .create()
+        }
+    }
+
+    private companion object {
+        /** Host token kinds → theme-aware attribute keys (fallbacks pick up the active scheme). */
+        val tokenAttributes: Map<String, TextAttributesKey> = mapOf(
+            "element" to TextAttributesKey.createTextAttributesKey(
+                "CURSORIAL_XAML_ELEMENT", DefaultLanguageHighlighterColors.CLASS_REFERENCE),
+            "attached" to TextAttributesKey.createTextAttributesKey(
+                "CURSORIAL_XAML_ATTACHED", DefaultLanguageHighlighterColors.STATIC_FIELD),
+            "directive" to TextAttributesKey.createTextAttributesKey(
+                "CURSORIAL_XAML_DIRECTIVE", DefaultLanguageHighlighterColors.METADATA),
+            "extension" to TextAttributesKey.createTextAttributesKey(
+                "CURSORIAL_XAML_EXTENSION", DefaultLanguageHighlighterColors.KEYWORD),
+        )
     }
 
     /** 1-based (line, column) to offset; null when the position falls outside the snapshot. */

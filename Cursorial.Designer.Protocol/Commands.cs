@@ -22,6 +22,8 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(SampleCellCommand), "sampleCell")]
 [JsonDerivedType(typeof(AnalyzeCommand), "analyze")]
 [JsonDerivedType(typeof(CompleteCommand), "complete")]
+[JsonDerivedType(typeof(HoverCommand), "hover")]
+[JsonDerivedType(typeof(DefinitionCommand), "definition")]
 [JsonDerivedType(typeof(SetThemeCommand), "setTheme")]
 [JsonDerivedType(typeof(ShutdownCommand), "shutdown")]
 public abstract class PreviewCommand
@@ -177,6 +179,12 @@ public sealed class AnalyzeCommand : PreviewCommand
 
     /// <summary>User assemblies to register for type resolution (same semantics as <c>loadXaml</c>).</summary>
     public IReadOnlyList<string>? Assemblies { get; init; }
+
+    /// <summary>
+    /// When true, the answering <c>diagnostics</c> event also carries classified token ranges
+    /// for semantic highlighting (additive field; older hosts ignore it).
+    /// </summary>
+    public bool? Classify { get; init; }
 }
 
 /// <summary>
@@ -184,6 +192,38 @@ public sealed class AnalyzeCommand : PreviewCommand
 /// answered by a <c>completions</c> event. Valid before <c>initialize</c>.
 /// </summary>
 public sealed class CompleteCommand : PreviewCommand
+{
+    public required string Xaml { get; init; }
+
+    public required int Line { get; init; }
+
+    public required int Column { get; init; }
+
+    public IReadOnlyList<string>? Assemblies { get; init; }
+}
+
+/// <summary>
+/// Editor service: symbol information at a 1-based position — signature, XML-doc summary, and
+/// (for x:Static paths) the resolved value; answered by a <c>hoverInfo</c> event. Valid before
+/// <c>initialize</c>.
+/// </summary>
+public sealed class HoverCommand : PreviewCommand
+{
+    public required string Xaml { get; init; }
+
+    public required int Line { get; init; }
+
+    public required int Column { get; init; }
+
+    public IReadOnlyList<string>? Assemblies { get; init; }
+}
+
+/// <summary>
+/// Editor service: the source location of the symbol at a 1-based position, resolved through
+/// the assembly's portable PDB sequence points; answered by a <c>definition</c> event. Valid
+/// before <c>initialize</c>.
+/// </summary>
+public sealed class DefinitionCommand : PreviewCommand
 {
     public required string Xaml { get; init; }
 

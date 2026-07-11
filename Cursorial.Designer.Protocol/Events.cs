@@ -16,6 +16,8 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(PropertiesEvent), "properties")]
 [JsonDerivedType(typeof(CellSamplesEvent), "cellSamples")]
 [JsonDerivedType(typeof(CompletionsEvent), "completions")]
+[JsonDerivedType(typeof(HoverInfoEvent), "hoverInfo")]
+[JsonDerivedType(typeof(DefinitionEvent), "definition")]
 [JsonDerivedType(typeof(ErrorEvent), "error")]
 [JsonDerivedType(typeof(LogEvent), "log")]
 public abstract class PreviewEvent
@@ -78,6 +80,27 @@ public sealed class DiagnosticsEvent : PreviewEvent
     public string? SourceUri { get; init; }
 
     public required IReadOnlyList<DiagnosticInfo> Items { get; init; }
+
+    /// <summary>Classified token ranges for semantic highlighting; present only when the
+    /// <c>analyze</c> command asked for them (<c>classify: true</c>).</summary>
+    public IReadOnlyList<TokenInfo>? Tokens { get; init; }
+}
+
+/// <summary>One classified token range for semantic highlighting (1-based line/column).</summary>
+public sealed class TokenInfo
+{
+    [JsonPropertyName("l")]
+    public required int Line { get; init; }
+
+    [JsonPropertyName("c")]
+    public required int Column { get; init; }
+
+    [JsonPropertyName("n")]
+    public required int Length { get; init; }
+
+    /// <summary><c>element</c>, <c>attached</c>, <c>directive</c>, or <c>extension</c>.</summary>
+    [JsonPropertyName("k")]
+    public required string Kind { get; init; }
 }
 
 /// <summary>Answer to <c>hitTest</c>: the element chain at the position, innermost first. Empty when nothing hit.</summary>
@@ -182,6 +205,33 @@ public sealed class CompletionItemInfo
     /// insert <c>{x:Static ThemeKeys.ElevationDesktop}</c>.
     /// </summary>
     public string? Insert { get; init; }
+}
+
+/// <summary>Answer to <c>hover</c>: symbol information at the position. All-null members mean "nothing here".</summary>
+public sealed class HoverInfoEvent : PreviewEvent
+{
+    /// <summary>A code-ish one-liner (e.g. <c>class Cursorial.UI.Controls.Button : ContentControl</c>).</summary>
+    public string? Signature { get; init; }
+
+    /// <summary>The symbol's XML-doc <c>&lt;summary&gt;</c> text, when the assembly ships a doc file.</summary>
+    public string? Summary { get; init; }
+
+    /// <summary>Extra fact worth surfacing (e.g. a constant's value, the declaring assembly).</summary>
+    public string? Detail { get; init; }
+}
+
+/// <summary>Answer to <c>definition</c>: a source location from portable PDB sequence points, or all-null.</summary>
+public sealed class DefinitionEvent : PreviewEvent
+{
+    /// <summary>Absolute path as recorded in the PDB; the IDE should verify it exists locally.</summary>
+    public string? File { get; init; }
+
+    public int? Line { get; init; }
+
+    public int? Column { get; init; }
+
+    /// <summary>Display name of the resolved symbol (for the IDE's action presentation).</summary>
+    public string? Symbol { get; init; }
 }
 
 /// <summary>A command failed. The session stays alive; the previous content keeps rendering.</summary>

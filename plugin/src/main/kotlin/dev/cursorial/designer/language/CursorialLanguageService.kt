@@ -12,8 +12,12 @@ import dev.cursorial.designer.previewer.UserAssemblyLocator
 import dev.cursorial.designer.protocol.AnalyzeCommand
 import dev.cursorial.designer.protocol.CompleteCommand
 import dev.cursorial.designer.protocol.CompletionsEvent
+import dev.cursorial.designer.protocol.DefinitionCommand
+import dev.cursorial.designer.protocol.DefinitionEvent
 import dev.cursorial.designer.protocol.DiagnosticsEvent
 import dev.cursorial.designer.protocol.ErrorEvent
+import dev.cursorial.designer.protocol.HoverCommand
+import dev.cursorial.designer.protocol.HoverInfoEvent
 import dev.cursorial.designer.protocol.PreviewerEvent
 import com.intellij.openapi.progress.ProgressManager
 import dev.cursorial.designer.settings.CursorialDesignerSettings
@@ -50,6 +54,8 @@ class CursorialLanguageService(private val project: Project) : Disposable {
             val replyTo = when (event) {
                 is DiagnosticsEvent -> event.replyTo
                 is CompletionsEvent -> event.replyTo
+                is HoverInfoEvent -> event.replyTo
+                is DefinitionEvent -> event.replyTo
                 is ErrorEvent -> event.replyTo
                 else -> null
             } ?: return
@@ -65,11 +71,27 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     }
 
     /** Live diagnostics for a document snapshot; null when the service is unavailable or slow. */
-    fun analyze(xaml: String, sourceUri: String?, contextFile: VirtualFile?, timeoutMs: Long = 5_000): DiagnosticsEvent? {
+    fun analyze(xaml: String, sourceUri: String?, contextFile: VirtualFile?, classify: Boolean = false, timeoutMs: Long = 5_000): DiagnosticsEvent? {
         val id = requestIds.incrementAndGet()
         return request(id, timeoutMs, contextFile) {
-            AnalyzeCommand(id, xaml, sourceUri, assembliesFor(contextFile))
+            AnalyzeCommand(id, xaml, sourceUri, assembliesFor(contextFile), if (classify) true else null)
         } as? DiagnosticsEvent
+    }
+
+    /** Symbol info (signature/docs/value) at a 1-based (line, column); null when unavailable or nothing there. */
+    fun hover(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 1_500): HoverInfoEvent? {
+        val id = requestIds.incrementAndGet()
+        return request(id, timeoutMs, contextFile) {
+            HoverCommand(id, xaml, line, column, assembliesFor(contextFile))
+        } as? HoverInfoEvent
+    }
+
+    /** Source location of the symbol at a 1-based (line, column); null when unavailable. */
+    fun definition(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 1_500): DefinitionEvent? {
+        val id = requestIds.incrementAndGet()
+        return request(id, timeoutMs, contextFile) {
+            DefinitionCommand(id, xaml, line, column, assembliesFor(contextFile))
+        } as? DefinitionEvent
     }
 
     /** Completion items at a 1-based (line, column); null when unavailable or slow. */

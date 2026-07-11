@@ -36,11 +36,16 @@ the session survives errors and keeps rendering the previous content.
 {"type":"getProperties","id":8,"elementId":3}
 {"type":"sampleCell","id":10,"column":5,"row":2}  // per-cell composition inspector
 {"type":"analyze","id":11,"xaml":"<…>","sourceUri":"file:///…",
- "assemblies":["…"]}                       // editor service: parse-only diagnostics; valid
+ "assemblies":["…"],"classify":true}       // editor service: parse-only diagnostics; valid
                                            // BEFORE initialize (language-service hosts never
-                                           // initialize a preview session)
+                                           // initialize a preview session). classify:true adds
+                                           // semantic tokens to the diagnostics reply
 {"type":"complete","id":12,"xaml":"<…>","line":2,"column":10,
  "assemblies":["…"]}                       // editor service: completion at a 1-based position
+{"type":"hover","id":13,"xaml":"<…>","line":2,"column":7,
+ "assemblies":["…"]}                       // editor service: symbol signature + XML-doc summary
+{"type":"definition","id":14,"xaml":"<…>","line":2,"column":7,
+ "assemblies":["…"]}                       // editor service: source location via portable PDBs
 {"type":"setTheme","themeBase":"light","colorTier":"truecolor"}
 {"type":"shutdown"}
 ```
@@ -79,6 +84,19 @@ exits on Escape — WPF-style.
 
 {"type":"properties","replyTo":8,"elementId":3,"items":[
   {"name":"Text","value":"Hello","valueSource":"Local","explanation":"…"}]}
+
+// With classify:true, diagnostics also carries semantic token ranges (1-based; l=line,
+// c=column, n=length, k=kind: element|attached|directive|extension):
+// "tokens":[{"l":2,"c":6,"n":9,"k":"element"}, …]
+
+{"type":"hoverInfo","replyTo":13,
+ "signature":"class Cursorial.UI.Controls.Button : ContentControl",
+ "summary":"A themed, focusable push button …",  // from the assembly's XML doc file
+ "detail":"\"Theme.ElevationDesktop\""}          // e.g. a constant's resolved value (x:Static)
+
+{"type":"definition","replyTo":14,"file":"/…/Cursorial.UI/Controls/Button.cs",
+ "line":12,"column":14,"symbol":"Button"}  // from portable PDB sequence points; the IDE
+                                           // verifies the path exists locally
 
 {"type":"completions","replyTo":12,"items":[
   {"text":"Button","kind":"element","detail":"Cursorial.UI.Controls"},

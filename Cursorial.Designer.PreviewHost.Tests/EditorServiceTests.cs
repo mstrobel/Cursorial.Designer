@@ -365,6 +365,74 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Analyze_with_classify_returns_semantic_tokens()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock x:Name=\"Title\" Grid.Row=\"1\" Text=\"{{Binding Greeting}}\"/>\n</StackPanel>";
+        _session.Execute(new AnalyzeCommand { Id = 81, Xaml = xaml, Classify = true });
+
+        var diagnostics = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent));
+        Assert.NotNull(diagnostics.Tokens);
+        Assert.Contains(diagnostics.Tokens!, t => t is { Kind: "element", Line: 2 });   // TextBlock
+        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "directive");               // x:Name
+        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "attached");                // Grid.Row
+        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "extension");               // Binding
+    }
+
+    [Fact]
+    public void Hover_reports_type_signature_and_doc_summary()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Content=\"hi\"/>\n</StackPanel>";
+        _session.Execute(new HoverCommand { Id = 82, Xaml = xaml, Line = 2, Column = 7 });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.StartsWith("class ", hover.Signature);
+        Assert.Contains("Button", hover.Signature);
+
+        // Summary comes from the assembly's XML doc file when it ships one.
+        var ui = AppDomain.CurrentDomain.GetAssemblies().First(a => a.GetName().Name == "Cursorial.UI");
+        if (File.Exists(Path.ChangeExtension(ui.Location, ".xml")))
+            Assert.False(string.IsNullOrWhiteSpace(hover.Summary));
+    }
+
+    [Fact]
+    public void Hover_reports_member_signature_for_attributes()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Content=\"hi\"/>\n</StackPanel>";
+        var column = "    <Button Content".IndexOf("Content", StringComparison.Ordinal) + 3;
+        _session.Execute(new HoverCommand { Id = 83, Xaml = xaml, Line = 2, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("Button.Content", hover.Signature);
+    }
+
+    [Fact]
+    public void Hover_resolves_x_static_paths_with_values()
+    {
+        var xaml = $"<StackPanel {Xmlns} Background=\"{{DynamicResource {{x:Static ThemeKeys.ElevationDesktop}}}}\"/>";
+        var column = xaml.IndexOf("ElevationDesktop", StringComparison.Ordinal) + 3;
+        _session.Execute(new HoverCommand { Id = 84, Xaml = xaml, Line = 1, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("const", hover.Signature);
+        Assert.Contains("ThemeKeys.ElevationDesktop", hover.Signature);
+        Assert.Contains("Theme.ElevationDesktop", hover.Detail); // the resolved key value
+    }
+
+    [Fact]
+    public void Definition_resolves_framework_types_to_source_via_pdb()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Content=\"hi\"/>\n</StackPanel>";
+        _session.Execute(new DefinitionCommand { Id = 85, Xaml = xaml, Line = 2, Column = 7 });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal("Button", definition.Symbol);
+        Assert.NotNull(definition.File);
+        Assert.EndsWith("Button.cs", definition.File);
+        Assert.True(definition.Line > 0);
+        Assert.True(File.Exists(definition.File)); // built from the sibling checkout: PDB paths are real
+    }
+
+    [Fact]
     public void Analyze_with_unloadable_assembly_still_replies_with_diagnostics()
     {
         _session.Execute(new AnalyzeCommand

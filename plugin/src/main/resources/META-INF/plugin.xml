@@ -26,6 +26,11 @@
         <!-- Tag auto-closing: Rider's XAML file type exposes no XML PSI on the frontend, so the
              platform's XML typed handlers never fire; this one fills the gap. -->
         <typedHandler implementation="dev.cursorial.designer.language.CursorialXamlTypedHandler" />
+        <!-- Quick documentation + go-to-declaration, answered by the language service (XML-doc
+             summaries from the assemblies' doc files; source locations from portable PDBs). -->
+        <lang.documentationProvider language="any"
+                                    implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
+        <gotoDeclarationHandler implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
 
         <!--
             dev.cursorial.designer.settings.CursorialDesignerSettings is a light service
