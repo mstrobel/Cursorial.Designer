@@ -430,7 +430,7 @@ internal static partial class EditorServices
                 var value = attribute.Groups[2];
                 var valueStart = attributes.Index + value.Index;
                 if (offset >= valueStart && offset <= valueStart + value.Length)
-                    return SymbolFromValue(blanked, documentPath, nameGroup.Value, attrName.Value, value.Value, offset - valueStart, tag.Index, namespaces, provider);
+                    return SymbolFromValue(blanked, documentPath, nameGroup.Value, attrName.Value, value.Value, offset - valueStart, valueStart, tag.Index, namespaces, provider);
             }
 
             return null; // inside the tag, but between symbols
@@ -555,6 +555,7 @@ internal static partial class EditorServices
         string attributeName,
         string value,
         int offsetInValue,
+        int valueDocumentOffset,
         int enclosingTagOffset,
         Dictionary<string, string> namespaces,
         IXamlTypeMetadataProvider provider)
@@ -657,7 +658,7 @@ internal static partial class EditorServices
         if (parameterName == "ElementName")
             return NamedElementSymbol(xaml, documentPath, token);
         if (parameterName == "Path" && canonical is "Binding")
-            return BindingPathSymbol(xaml, token, namespaces, provider);
+            return BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, token, namespaces, provider);
         if (parameterName is not null)
         {
             var extensionType = (ResolveElement(rawExtensionName, namespaces, provider) ?? ResolveElement(rawExtensionName + "Extension", namespaces, provider))
@@ -672,7 +673,7 @@ internal static partial class EditorServices
         {
             "StaticResource" or "DynamicResource" => ResourceKeySymbol(xaml, documentPath, token),
             "x:Reference" => NamedElementSymbol(xaml, documentPath, token),
-            "Binding" or "TemplateBinding" => BindingPathSymbol(xaml, token, namespaces, provider),
+            "Binding" or "TemplateBinding" => BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, token, namespaces, provider),
             _ => null,
         };
     }
@@ -1022,10 +1023,106 @@ internal static partial class EditorServices
         return null;
     }
 
-    /// <summary>A binding path resolved against the document's d:DataContext design type.</summary>
-    private static SymbolInfo? BindingPathSymbol(string xaml, string path, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    /// <summary>
+    /// The binding's source type: <c>ElementName=</c> in the same extension wins (the named
+    /// element's type); else the nearest ancestor <c>DataTemplate DataType</c> or
+    /// <c>d:DataContext</c> (the root included — subsuming the old root-only behavior).
+    /// </summary>
+    internal static Type? BindingSourceType(string blanked, int caretOffset, string extensionBody, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        var current = DesignDataContextType(xaml, namespaces, provider);
+        var elementName = Regex.Match(extensionBody, "\\bElementName\\s*=\\s*([A-Za-z_][\\w-]*)");
+        if (elementName.Success)
+            return NamedElementType(blanked, elementName.Groups[1].Value, namespaces, provider);
+
+        return AmbientDataContextType(blanked, caretOffset, namespaces, provider);
+    }
+
+    /// <summary>The CLR type of the element declaring <c>Name</c>/<c>x:Name</c> = <paramref name="name"/>.</summary>
+    private static Type? NamedElementType(string xaml, string name, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        foreach (Match match in NameAttribute().Matches(xaml))
+        {
+            if (match.Groups[1].Value != name)
+                continue;
+
+            foreach (Match tag in TagToken().Matches(xaml))
+            {
+                if (match.Index < tag.Index || match.Index > tag.Index + tag.Length)
+                    continue;
+                return ResolveElement(tag.Groups[2].Value, namespaces, provider)?.ClrType.UnderlyingSystemType;
+            }
+
+            break;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The ambient data-context type at a position: the nearest enclosing tag carrying
+    /// <c>DataTemplate DataType="…"</c> or <c>d:DataContext="…"</c>, innermost first.
+    /// </summary>
+    private static Type? AmbientDataContextType(string blanked, int offset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var designPrefixes = namespaces.Where(n => DesignUris.Contains(n.Value)).Select(n => n.Key).ToList();
+
+        Type? FromTag(Match tag)
+        {
+            var attributes = tag.Groups[3].Value;
+            if (tag.Groups[2].Value == "DataTemplate"
+                && Regex.Match(attributes, "\\bDataType\\s*=\\s*\"([^\"]+)\"") is { Success: true } dataType)
+            {
+                return ResolveElement(dataType.Groups[1].Value, namespaces, provider)?.ClrType.UnderlyingSystemType;
+            }
+
+            foreach (var prefix in designPrefixes)
+            {
+                var match = Regex.Match(attributes, Regex.Escape(prefix) + ":DataContext\\s*=\\s*\"([^\"]+)\"");
+                if (match.Success)
+                    return ResolveElement(match.Groups[1].Value, namespaces, provider)?.ClrType.UnderlyingSystemType;
+            }
+
+            return null;
+        }
+
+        Match? containing = null;
+        var stack = new Stack<Match>();
+        foreach (Match tag in TagToken().Matches(blanked))
+        {
+            if (tag.Index >= offset)
+                break;
+            if (offset <= tag.Index + tag.Length)
+                containing = tag; // the (possibly self-closed) tag whose attributes hold the caret
+
+            var closing = tag.Groups[1].Value.Length > 0;
+            var selfClosed = tag.Groups[4].Value.Length > 0;
+            if (closing)
+            {
+                if (stack.Count > 0)
+                    stack.Pop();
+            }
+            else if (!selfClosed)
+            {
+                stack.Push(tag);
+            }
+        }
+
+        if (containing is not null && FromTag(containing) is { } own)
+            return own;
+
+        foreach (var tag in stack) // innermost first
+        {
+            if (FromTag(tag) is { } found)
+                return found;
+        }
+
+        return null;
+    }
+
+    /// <summary>A binding path resolved against the inferred binding source (ElementName / DataTemplate DataType / d:DataContext).</summary>
+    private static SymbolInfo? BindingPathSymbol(string xaml, int caretOffset, string extensionBody, string path, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var current = BindingSourceType(xaml, caretOffset, extensionBody, namespaces, provider);
         if (current is null || path.Length == 0)
             return null;
 

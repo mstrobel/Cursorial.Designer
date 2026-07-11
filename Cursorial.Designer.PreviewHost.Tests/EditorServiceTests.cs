@@ -535,6 +535,45 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_infers_binding_source_from_data_template()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = "<StackPanel " + Xmlns + $" xmlns:t=\"{ns}\">\n" +
+                   "    <DataTemplate DataType=\"t:DesignViewModel\">\n" +
+                   "        <TextBlock Text=\"{Binding \n" +
+                   "    </DataTemplate>\n</StackPanel>";
+        var line3 = "        <TextBlock Text=\"{Binding ";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 102,
+            Xaml = xaml,
+            Line = 3,
+            Column = line3.Length + 1,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        // No root d:DataContext anywhere: the enclosing DataTemplate's DataType is the source.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Greeting", Detail: "String" });
+    }
+
+    [Fact]
+    public void Complete_infers_binding_source_from_element_name()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n" +
+                   "    <Button x:Name=\"ok\" Content=\"X\"/>\n" +
+                   "    <TextBlock Text=\"{Binding ElementName=ok, Path=\n</StackPanel>";
+        var line3 = "    <TextBlock Text=\"{Binding ElementName=ok, Path=";
+        _session.Execute(new CompleteCommand { Id = 103, Xaml = xaml, Line = 3, Column = line3.Length + 1 });
+
+        // The named Button is the binding source: its properties complete.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "Content");
+        Assert.Contains(completions.Items, i => i.Text == "IsEnabled");
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Greeting");
+    }
+
+    [Fact]
     public void Complete_offers_pseudo_classes_in_selectors()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button:\n</StackPanel>";

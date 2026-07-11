@@ -324,7 +324,7 @@ internal static partial class EditorServices
                     break;
                 }
 
-                var extensionItems = CompleteExtension(context.Prefix, xaml, namespaces, provider);
+                var extensionItems = CompleteExtension(context.Prefix, xaml, offset, namespaces, provider);
                 if (extensionItems is not null)
                 {
                     items.AddRange(extensionItems);
@@ -520,7 +520,7 @@ internal static partial class EditorServices
     /// INNERMOST open brace: <c>{DynamicResource {x:Static Th</c> completes the x:Static.
     /// </summary>
     private static List<CompletionItemInfo>? CompleteExtension(
-        string valuePrefix, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+        string valuePrefix, string xaml, int caretOffset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var open = -1;
         var depth = 0;
@@ -556,8 +556,8 @@ internal static partial class EditorServices
 
         var equals = argument.IndexOf('=');
         return equals >= 0
-            ? CompleteExtensionNamedValue(name, argument[..equals].Trim(), argument[(equals + 1)..].TrimStart(), xaml, namespaces, provider)
-            : CompleteExtensionArgument(name, argument, xaml, namespaces, provider);
+            ? CompleteExtensionNamedValue(name, argument[..equals].Trim(), argument[(equals + 1)..].TrimStart(), xaml, caretOffset, body, namespaces, provider)
+            : CompleteExtensionArgument(name, argument, xaml, caretOffset, body, namespaces, provider);
     }
 
     /// <summary>Folds a prefixed intrinsic (<c>x:Static</c> under any prefix) to its canonical form.</summary>
@@ -608,7 +608,7 @@ internal static partial class EditorServices
     }
 
     private static List<CompletionItemInfo> CompleteExtensionArgument(
-        string extension, string argument, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+        string extension, string argument, string xaml, int caretOffset, string body, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         switch (extension)
         {
@@ -627,7 +627,7 @@ internal static partial class EditorServices
                 return NamedElementItems(xaml);
 
             case "Binding":
-                return BindingArgumentItems(argument, xaml, namespaces, provider);
+                return BindingArgumentItems(argument, xaml, caretOffset, body, namespaces, provider);
 
             default:
                 return [];
@@ -635,14 +635,14 @@ internal static partial class EditorServices
     }
 
     private static List<CompletionItemInfo> CompleteExtensionNamedValue(
-        string extension, string parameter, string value, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+        string extension, string parameter, string value, string xaml, int caretOffset, string body, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         if (extension == "Binding")
         {
             if (parameter == "ElementName")
                 return NamedElementItems(xaml);
             if (parameter == "Path")
-                return BindingPathItems(value, xaml, namespaces, provider); // {Binding Path=Customer.| walks like the positional form
+                return BindingPathItems(value, xaml, caretOffset, body, namespaces, provider); // {Binding Path=Customer.| walks like the positional form
         }
 
         // Enum/bool parameters (e.g. {Binding …, Mode=OneWay}) via the extension's own type.
@@ -817,9 +817,9 @@ internal static partial class EditorServices
     }
 
     /// <summary>First positional Binding argument: data-context paths plus Binding's named parameters.</summary>
-    private static List<CompletionItemInfo> BindingArgumentItems(string argument, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    private static List<CompletionItemInfo> BindingArgumentItems(string argument, string xaml, int caretOffset, string body, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        var items = BindingPathItems(argument, xaml, namespaces, provider);
+        var items = BindingPathItems(argument, xaml, caretOffset, body, namespaces, provider);
 
         // Named parameters (Mode=, ElementName=, …) from the Binding type itself, only while the
         // argument has no dots (a dotted path is unambiguous).
@@ -850,9 +850,9 @@ internal static partial class EditorServices
     }
 
     /// <summary>Property paths rooted at the document's d:DataContext design type, dot-walking property types.</summary>
-    private static List<CompletionItemInfo> BindingPathItems(string path, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    private static List<CompletionItemInfo> BindingPathItems(string path, string xaml, int caretOffset, string body, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        var current = DesignDataContextType(xaml, namespaces, provider);
+        var current = BindingSourceType(xaml, caretOffset, body, namespaces, provider);
         if (current is null)
             return [];
 
