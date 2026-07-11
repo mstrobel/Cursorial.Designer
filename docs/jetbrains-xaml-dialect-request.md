@@ -28,6 +28,8 @@ In increasing order of ambition; the first tier alone would already remove the s
 2. **Dialect registration.** An extension point to register a XAML framework: its root/default xmlns URIs, how URI→CLR-namespace mapping is declared in referenced assemblies (the attribute's FQN), and its base-element/attached-property conventions — so the existing engine can provide resolution, completion, and navigation for the dialect generically.
 3. **Backend semantic integration.** For registered dialects, participation in find-usages and rename between XAML references and C# symbols.
 
+A related, smaller gap in the same territory: there is no way for a plugin (or an MSBuild package) to register a **custom item type** with Rider's project model. Files claimed only by an import-declared custom item type (e.g. a `<CursorialXaml>` default glob shipped in a NuGet package's `.props`, the same pattern Avalonia uses for `.axaml`) do not appear in the Solution Explorer at all — `Visible="true"` metadata is not honored — and the Properties pane cannot display or assign the custom build action unless the item is declared literally in the csproj body. Packages are forced to keep a redundant `None` claim on such files purely so they render in the tree.
+
 ## Current behavior
 
 No extension point exists; dialect detection appears keyed to known framework assemblies and hard-coded `XmlnsDefinitionAttribute` type names, with no fallback for compliant-but-unknown XAML.
