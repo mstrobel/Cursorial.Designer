@@ -404,6 +404,8 @@ data class CompletionItem(
     val detail: String? = null,
     /** Text to insert when it differs from [text] (e.g. an {x:Static …} resource reference). */
     val insert: String? = null,
+    /** Caret position within [insert] after insertion (e.g. inside a stub's closing brace). */
+    val caret: Int? = null,
 )
 
 data class PropertiesEvent(

@@ -56,12 +56,12 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
                 val matched = result.withPrefixMatcher(text.subSequence(prefixStart, offset).toString())
 
                 for (item in completions.items)
-                    matched.addElement(lookup(item.text, item.kind, item.detail, item.insert))
+                    matched.addElement(lookup(item.text, item.kind, item.detail, item.insert, item.caret))
             }
         })
     }
 
-    private fun lookup(text: String, kind: String?, detail: String?, insert: String?): LookupElement {
+    private fun lookup(text: String, kind: String?, detail: String?, insert: String?, caret: Int? = null): LookupElement {
         // When insert differs from the display text (e.g. {x:Static …} references), the inserted
         // string is the element's payload while the display text drives matching/presentation.
         var builder = if (insert != null)
@@ -69,6 +69,11 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
         else
             LookupElementBuilder.create(text)
         detail?.let { builder = builder.withTypeText(it, true) }
+        if (insert != null && caret != null) {
+            builder = builder.withInsertHandler { context, _ ->
+                context.editor.caretModel.moveToOffset(context.startOffset + caret)
+            }
+        }
         builder = when (kind) {
             "element" -> builder.withIcon(AllIcons.Nodes.Class)
             "attribute" -> builder.withIcon(AllIcons.Nodes.Property).withInsertHandler(AttributeInsertHandler)

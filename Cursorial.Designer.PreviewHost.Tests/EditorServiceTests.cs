@@ -636,6 +636,8 @@ public class EditorServiceTests : IDisposable
         Assert.Equal("{RelativeSource Self}", self.Insert);
         var ancestor = Assert.Single(completions.Items, i => i.Text == "FindAncestor");
         Assert.Equal("{RelativeSource FindAncestor, AncestorType=}", ancestor.Insert);
+        Assert.Equal(ancestor.Insert!.Length - 1, ancestor.Caret); // caret parks inside '}'
+
     }
 
     [Fact]

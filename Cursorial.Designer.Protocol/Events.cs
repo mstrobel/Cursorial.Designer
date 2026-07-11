@@ -205,6 +205,10 @@ public sealed class CompletionItemInfo
     /// insert <c>{x:Static ThemeKeys.ElevationDesktop}</c>.
     /// </summary>
     public string? Insert { get; init; }
+
+    /// <summary>Caret position within <see cref="Insert"/> after insertion, when it should not
+    /// land at the end — e.g. inside the closing brace of a stubbed nested extension.</summary>
+    public int? Caret { get; init; }
 }
 
 /// <summary>Answer to <c>hover</c>: symbol information at the position. All-null members mean "nothing here".</summary>

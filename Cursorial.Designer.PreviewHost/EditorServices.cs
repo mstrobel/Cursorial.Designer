@@ -688,14 +688,19 @@ internal static partial class EditorServices
             if (modeType is { IsEnum: true })
             {
                 return Enum.GetNames(modeType)
-                    .Select(mode => new CompletionItemInfo
+                    .Select(mode =>
                     {
-                        Text = mode,
-                        Kind = "value",
-                        Detail = "shorthand",
-                        Insert = mode == "FindAncestor"
+                        var insert = mode == "FindAncestor"
                             ? "{RelativeSource FindAncestor, AncestorType=}"
-                            : "{" + $"RelativeSource {mode}" + "}",
+                            : "{" + $"RelativeSource {mode}" + "}";
+                        return new CompletionItemInfo
+                        {
+                            Text = mode,
+                            Kind = "value",
+                            Detail = "shorthand",
+                            Insert = insert,
+                            Caret = mode == "FindAncestor" ? insert.Length - 1 : null, // inside '}'
+                        };
                     })
                     .ToList();
             }
