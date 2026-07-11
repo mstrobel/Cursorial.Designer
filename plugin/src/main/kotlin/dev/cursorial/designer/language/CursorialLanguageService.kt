@@ -82,7 +82,7 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     fun hover(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 1_500): HoverInfoEvent? {
         val id = requestIds.incrementAndGet()
         return request(id, timeoutMs, contextFile) {
-            HoverCommand(id, xaml, line, column, assembliesFor(contextFile))
+            HoverCommand(id, xaml, line, column, assembliesFor(contextFile), contextFile?.path)
         } as? HoverInfoEvent
     }
 
@@ -90,7 +90,7 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     fun definition(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 1_500): DefinitionEvent? {
         val id = requestIds.incrementAndGet()
         return request(id, timeoutMs, contextFile) {
-            DefinitionCommand(id, xaml, line, column, assembliesFor(contextFile))
+            DefinitionCommand(id, xaml, line, column, assembliesFor(contextFile), contextFile?.path)
         } as? DefinitionEvent
     }
 

@@ -216,6 +216,10 @@ public sealed class HoverCommand : PreviewCommand
     public required int Column { get; init; }
 
     public IReadOnlyList<string>? Assemblies { get; init; }
+
+    /// <summary>Local path of the edited document — lets in-document targets (named elements,
+    /// document resource keys) report locations the IDE can open. Additive field.</summary>
+    public string? FilePath { get; init; }
 }
 
 /// <summary>
@@ -232,6 +236,10 @@ public sealed class DefinitionCommand : PreviewCommand
     public required int Column { get; init; }
 
     public IReadOnlyList<string>? Assemblies { get; init; }
+
+    /// <summary>Local path of the edited document — lets in-document targets (named elements,
+    /// document resource keys) report locations the IDE can open. Additive field.</summary>
+    public string? FilePath { get; init; }
 }
 
 /// <summary>Orderly shutdown; the host exits after acknowledging with a final <c>log</c> event.</summary>

@@ -452,7 +452,7 @@ internal sealed class PreviewSession : IDisposable
     private void Hover(HoverCommand command)
     {
         RegisterAssemblies(command.Assemblies, command.Id);
-        var symbol = EditorServices.SymbolAt(command.Xaml, command.Line, command.Column);
+        var symbol = EditorServices.SymbolAt(command.Xaml, command.Line, command.Column, command.FilePath);
         var summary = symbol is { Owner: { } owner, DocIds.Count: > 0 } ? EditorServices.XmlSummary(owner, symbol.DocIds) : null;
         _emit(new HoverInfoEvent
         {
@@ -467,8 +467,11 @@ internal sealed class PreviewSession : IDisposable
     private void Definition(DefinitionCommand command)
     {
         RegisterAssemblies(command.Assemblies, command.Id);
-        var symbol = EditorServices.SymbolAt(command.Xaml, command.Line, command.Column);
-        var location = symbol?.Owner is { } owner ? EditorServices.SourceLocationOf(owner, symbol.Member) : null;
+        var symbol = EditorServices.SymbolAt(command.Xaml, command.Line, command.Column, command.FilePath);
+        // In-document targets (named elements, document resource keys) carry their own location;
+        // everything else resolves through the assembly's portable PDB.
+        var location = symbol?.Location
+            ?? (symbol?.Owner is { } owner ? EditorServices.SourceLocationOf(owner, symbol.Member) : null);
         _emit(new DefinitionEvent
         {
             ReplyTo = command.Id,

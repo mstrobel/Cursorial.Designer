@@ -43,9 +43,12 @@ the session survives errors and keeps rendering the previous content.
 {"type":"complete","id":12,"xaml":"<…>","line":2,"column":10,
  "assemblies":["…"]}                       // editor service: completion at a 1-based position
 {"type":"hover","id":13,"xaml":"<…>","line":2,"column":7,
- "assemblies":["…"]}                       // editor service: symbol signature + XML-doc summary
+ "assemblies":["…"],"filePath":"/…/View.xaml"}  // editor service: symbol signature + XML-doc
+                                           // summary; filePath lets in-document targets (named
+                                           // elements, document resource keys) report locations
 {"type":"definition","id":14,"xaml":"<…>","line":2,"column":7,
- "assemblies":["…"]}                       // editor service: source location via portable PDBs
+ "assemblies":["…"],"filePath":"/…/View.xaml"}  // editor service: source location via portable
+                                           // PDBs, or in-document for x:Reference/x:Key targets
 {"type":"setTheme","themeBase":"light","colorTier":"truecolor"}
 {"type":"shutdown"}
 ```
@@ -86,7 +89,10 @@ exits on Escape — WPF-style.
   {"name":"Text","value":"Hello","valueSource":"Local","explanation":"…"}]}
 
 // With classify:true, diagnostics also carries semantic token ranges (1-based; l=line,
-// c=column, n=length, k=kind: element|attached|directive|extension):
+// c=column, n=length). Kinds: element, attribute, attached, directive, extension, comment,
+// string, brace, dot, parameter, resourceKey, bindingPath, elementRef, staticMember, number,
+// enumValue, bool. Dotted names split (owner=element, '.'=dot, member=attribute/attached);
+// extension arguments classify by role per extension; plain values classify by property type.
 // "tokens":[{"l":2,"c":6,"n":9,"k":"element"}, …]
 
 {"type":"hoverInfo","replyTo":13,

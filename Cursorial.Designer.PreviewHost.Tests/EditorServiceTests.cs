@@ -367,18 +367,86 @@ public class EditorServiceTests : IDisposable
     [Fact]
     public void Analyze_with_classify_returns_semantic_tokens()
     {
-        var xaml = $"<StackPanel {Xmlns}>\n    <!-- note -->\n    <TextBlock x:Name=\"Title\" Grid.Row=\"1\" Text=\"{{Binding Greeting}}\"/>\n</StackPanel>";
+        var xaml = $"<StackPanel {Xmlns}>\n    <!-- note -->\n    <TextBlock x:Name=\"Title\" Grid.Row=\"1\" Visibility=\"Hidden\" IsVisible=\"x\" Text=\"{{Binding Path=Greeting, Mode=OneWay}}\" Tag=\"{{StaticResource PanelAccent}}\"/>\n</StackPanel>";
         _session.Execute(new AnalyzeCommand { Id = 81, Xaml = xaml, Classify = true });
 
         var diagnostics = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent));
-        Assert.NotNull(diagnostics.Tokens);
-        Assert.Contains(diagnostics.Tokens!, t => t is { Kind: "element", Line: 3 });   // TextBlock
-        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "directive");               // x:Name
-        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "attached");                // Grid.Row
-        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "extension");               // Binding
-        Assert.Contains(diagnostics.Tokens!, t => t is { Kind: "comment", Line: 2 });   // <!-- note -->
-        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "string");                  // "1" (no extension)
-        // Grid.Row's value "1" is a string token; Text's extension-bearing value is not.
+        var tokens = diagnostics.Tokens!;
+        Assert.Contains(tokens, t => t is { Kind: "element", Line: 3 });   // TextBlock, and Grid of Grid.Row
+        Assert.Contains(tokens, t => t.Kind == "directive");               // x:Name
+        Assert.Contains(tokens, t => t is { Kind: "attached", Length: 3 }); // "Row" (split from Grid)
+        Assert.Contains(tokens, t => t is { Kind: "dot", Length: 1 });      // the '.' delimiter
+        Assert.Contains(tokens, t => t.Kind == "extension");               // Binding / StaticResource
+        Assert.Contains(tokens, t => t is { Kind: "comment", Line: 2 });   // <!-- note -->
+        Assert.Contains(tokens, t => t is { Kind: "number", Length: 1 });  // Grid.Row="1" (attached value type)
+        Assert.Contains(tokens, t => t is { Kind: "enumValue", Length: 6 }); // Hidden
+        Assert.Contains(tokens, t => t is { Kind: "enumValue", Length: 6 } && t.Kind == "enumValue"); // OneWay via Binding.Mode
+        Assert.Contains(tokens, t => t.Kind == "parameter");               // Path / Mode
+        Assert.Contains(tokens, t => t is { Kind: "bindingPath", Length: 8 }); // Greeting
+        Assert.Contains(tokens, t => t is { Kind: "resourceKey", Length: 11 }); // PanelAccent
+        Assert.Contains(tokens, t => t.Kind == "brace");                   // extension delimiters
+        Assert.Contains(tokens, t => t.Kind == "string");                  // x:Name's "Title" (untypeable)
+    }
+
+    [Fact]
+    public void Hover_resolves_resource_keys_to_their_constants()
+    {
+        var xaml = $"<StackPanel {Xmlns} Tag=\"{{DynamicResource Theme.ElevationDesktop}}\"/>";
+        var column = xaml.IndexOf("Theme.Elevation", StringComparison.Ordinal) + 3;
+        _session.Execute(new HoverCommand { Id = 86, Xaml = xaml, Line = 1, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("const", hover.Signature);
+        Assert.Contains("ThemeKeys.ElevationDesktop", hover.Signature);
+    }
+
+    [Fact]
+    public void Hover_resolves_named_binding_paths_against_design_data_context()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = "<StackPanel " + Xmlns +
+                   " xmlns:d=\"http://schemas.microsoft.com/expression/blend/2008\"" +
+                   $" xmlns:t=\"{ns}\" d:DataContext=\"t:DesignViewModel\">\n" +
+                   "    <TextBlock Text=\"{Binding Path=Greeting}\"/>\n</StackPanel>";
+        var line2 = "    <TextBlock Text=\"{Binding Path=Greeting}\"/>";
+        var column = line2.IndexOf("Greeting", StringComparison.Ordinal) + 3;
+        _session.Execute(new HoverCommand
+        {
+            Id = 87,
+            Xaml = xaml,
+            Line = 2,
+            Column = column,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("DesignViewModel.Greeting", hover.Signature);
+        Assert.Contains("String", hover.Signature);
+    }
+
+    [Fact]
+    public void Definition_on_x_reference_jumps_in_document()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button x:Name=\"okButton\"/>\n    <TextBlock Text=\"{{x:Reference okButton}}\"/>\n</StackPanel>";
+        var line3 = "    <TextBlock Text=\"{x:Reference okButton}\"/>";
+        var column = line3.IndexOf("okButton", StringComparison.Ordinal) + 3;
+        _session.Execute(new DefinitionCommand { Id = 88, Xaml = xaml, Line = 3, Column = column, FilePath = "/tmp/View.xaml" });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal("/tmp/View.xaml", definition.File);
+        Assert.Equal(2, definition.Line); // the x:Name declaration
+    }
+
+    [Fact]
+    public void Hover_resolves_plain_enum_values()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Visibility=\"Hidden\"/>\n</StackPanel>";
+        var line2 = "    <Button Visibility=\"Hidden\"/>";
+        var column = line2.IndexOf("Hidden", StringComparison.Ordinal) + 2;
+        _session.Execute(new HoverCommand { Id = 89, Xaml = xaml, Line = 2, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("enum Visibility.Hidden", hover.Signature);
     }
 
     [Fact]

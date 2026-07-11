@@ -37,6 +37,26 @@ object CursorialXamlColors {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_COMMENT", DefaultLanguageHighlighterColors.BLOCK_COMMENT)
     val STRING: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_STRING", DefaultLanguageHighlighterColors.STRING)
+    val BRACE: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_BRACE", DefaultLanguageHighlighterColors.BRACES)
+    val DOT: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_DOT", DefaultLanguageHighlighterColors.DOT)
+    val PARAMETER: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_PARAMETER", propertyLike)
+    val RESOURCE_KEY: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_RESOURCE_KEY", DefaultLanguageHighlighterColors.CONSTANT)
+    val BINDING_PATH: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_BINDING_PATH", propertyLike)
+    val ELEMENT_REF: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ELEMENT_REF", DefaultLanguageHighlighterColors.LOCAL_VARIABLE)
+    val STATIC_MEMBER: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_STATIC_MEMBER", DefaultLanguageHighlighterColors.CONSTANT)
+    val NUMBER: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_NUMBER", DefaultLanguageHighlighterColors.NUMBER)
+    val ENUM_VALUE: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ENUM_VALUE", DefaultLanguageHighlighterColors.CONSTANT)
+    val BOOL: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_BOOL", DefaultLanguageHighlighterColors.KEYWORD)
 
     /** Host token kinds → keys. */
     val byKind: Map<String, TextAttributesKey> = mapOf(
@@ -47,6 +67,16 @@ object CursorialXamlColors {
         "extension" to EXTENSION,
         "comment" to COMMENT,
         "string" to STRING,
+        "brace" to BRACE,
+        "dot" to DOT,
+        "parameter" to PARAMETER,
+        "resourceKey" to RESOURCE_KEY,
+        "bindingPath" to BINDING_PATH,
+        "elementRef" to ELEMENT_REF,
+        "staticMember" to STATIC_MEMBER,
+        "number" to NUMBER,
+        "enumValue" to ENUM_VALUE,
+        "bool" to BOOL,
     )
 
     /** Kinds a native lexer already paints correctly; applied only on plain-text files. */
@@ -71,6 +101,16 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
         AttributesDescriptor("Markup extension", CursorialXamlColors.EXTENSION),
         AttributesDescriptor("Comment (plain text fallback)", CursorialXamlColors.COMMENT),
         AttributesDescriptor("String (plain text fallback)", CursorialXamlColors.STRING),
+        AttributesDescriptor("Markup extension braces", CursorialXamlColors.BRACE),
+        AttributesDescriptor("Member access dot", CursorialXamlColors.DOT),
+        AttributesDescriptor("Extension parameter", CursorialXamlColors.PARAMETER),
+        AttributesDescriptor("Resource key", CursorialXamlColors.RESOURCE_KEY),
+        AttributesDescriptor("Binding path", CursorialXamlColors.BINDING_PATH),
+        AttributesDescriptor("Element reference", CursorialXamlColors.ELEMENT_REF),
+        AttributesDescriptor("Static member (x:Static)", CursorialXamlColors.STATIC_MEMBER),
+        AttributesDescriptor("Number literal", CursorialXamlColors.NUMBER),
+        AttributesDescriptor("Enum value", CursorialXamlColors.ENUM_VALUE),
+        AttributesDescriptor("Boolean literal", CursorialXamlColors.BOOL),
     )
 
     override fun getColorDescriptors(): Array<ColorDescriptor> = ColorDescriptor.EMPTY_ARRAY
@@ -80,9 +120,13 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
         <<element>DockPanel</element> xmlns="https://cursorial.dev/ui"
                    xmlns:x="https://cursorial.dev/xaml"
                    <directive>x:Name</directive>="Root"
-                   <attribute>Padding</attribute>="1"
-                   <attached>Grid.Row</attached>="0"
-                   <attribute>Background</attribute>="{<extension>DynamicResource</extension> {<extension>x:Static</extension> ThemeKeys.PanelBrush}}">
+                   <attribute>Padding</attribute>="<number>1</number>"
+                   <element>Grid</element><dot>.</dot><attached>Row</attached>="<number>0</number>"
+                   <attribute>Visibility</attribute>="<enumValue>Visible</enumValue>"
+                   <attribute>IsEnabled</attribute>="<bool>True</bool>"
+                   <attribute>Background</attribute>="<brace>{</brace><extension>DynamicResource</extension> <brace>{</brace><extension>x:Static</extension> <element>ThemeKeys</element><dot>.</dot><staticMember>PanelBrush</staticMember><brace>}</brace><brace>}</brace>"
+                   <attribute>Text</attribute>="<brace>{</brace><extension>Binding</extension> <parameter>Path</parameter>=<bindingPath>Title</bindingPath>, <parameter>ElementName</parameter>=<elementRef>Root</elementRef><brace>}</brace>"
+                   <attribute>Tag</attribute>="<brace>{</brace><extension>StaticResource</extension> <resourceKey>PanelAccent</resourceKey><brace>}</brace>">
             <<element>TextBlock</element> <attribute>Text</attribute>=<string>"Hello"</string>/>
         </<element>DockPanel</element>>
     """.trimIndent()
@@ -95,5 +139,15 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
         "extension" to CursorialXamlColors.EXTENSION,
         "comment" to CursorialXamlColors.COMMENT,
         "string" to CursorialXamlColors.STRING,
+        "brace" to CursorialXamlColors.BRACE,
+        "dot" to CursorialXamlColors.DOT,
+        "parameter" to CursorialXamlColors.PARAMETER,
+        "resourceKey" to CursorialXamlColors.RESOURCE_KEY,
+        "bindingPath" to CursorialXamlColors.BINDING_PATH,
+        "elementRef" to CursorialXamlColors.ELEMENT_REF,
+        "staticMember" to CursorialXamlColors.STATIC_MEMBER,
+        "number" to CursorialXamlColors.NUMBER,
+        "enumValue" to CursorialXamlColors.ENUM_VALUE,
+        "bool" to CursorialXamlColors.BOOL,
     )
 }

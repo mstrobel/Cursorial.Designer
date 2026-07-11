@@ -434,8 +434,11 @@ internal static partial class EditorServices
     }
 
     private static Type? ResolveAttributeValueType(in CompletionContext context, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+        => AttributeValueType(context.ElementName, context.AttributeName, namespaces, provider);
+
+    /// <summary>The CLR type an attribute's value converts to, or null when unresolvable.</summary>
+    internal static Type? AttributeValueType(string elementName, string attribute, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        var attribute = context.AttributeName;
         if (attribute.Contains(':'))
             return null; // directives (x:) and prefixed attached owners: no value completion yet
 
@@ -449,7 +452,7 @@ internal static partial class EditorServices
         }
         else
         {
-            owner = context.ElementName;
+            owner = elementName;
             member = attribute;
         }
 
@@ -796,25 +799,23 @@ internal static partial class EditorServices
         return items.DistinctBy(i => i.Text).ToList();
     }
 
-    /// <summary>Property paths rooted at the document's d:DataContext design type, dot-walking property types.</summary>
-    private static List<CompletionItemInfo> BindingPathItems(string path, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    /// <summary>The CLR type named by the document's d:DataContext design attribute, when resolvable.</summary>
+    internal static Type? DesignDataContextType(string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        var designPrefixes = namespaces.Where(n => DesignUris.Contains(n.Value)).Select(n => n.Key).ToList();
-        string? dataContextName = null;
-        foreach (var prefix in designPrefixes)
+        foreach (var prefix in namespaces.Where(n => DesignUris.Contains(n.Value)).Select(n => n.Key))
         {
             var match = Regex.Match(xaml, Regex.Escape(prefix) + ":DataContext\\s*=\\s*\"([^\"]+)\"");
             if (match.Success)
-            {
-                dataContextName = match.Groups[1].Value;
-                break;
-            }
+                return ResolveElement(match.Groups[1].Value, namespaces, provider)?.ClrType.UnderlyingSystemType;
         }
 
-        if (dataContextName is null)
-            return [];
+        return null;
+    }
 
-        var current = ResolveElement(dataContextName, namespaces, provider)?.ClrType.UnderlyingSystemType;
+    /// <summary>Property paths rooted at the document's d:DataContext design type, dot-walking property types.</summary>
+    private static List<CompletionItemInfo> BindingPathItems(string path, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var current = DesignDataContextType(xaml, namespaces, provider);
         if (current is null)
             return [];
 

@@ -142,6 +142,8 @@ data class HoverCommand(
     val line: Int,
     val column: Int,
     val assemblies: List<String> = emptyList(),
+    /** Local path of the edited document (in-document targets report openable locations). */
+    val filePath: String? = null,
 ) : PreviewerCommand {
     override val type: String = "hover"
 }
@@ -154,6 +156,8 @@ data class DefinitionCommand(
     val line: Int,
     val column: Int,
     val assemblies: List<String> = emptyList(),
+    /** Local path of the edited document (in-document targets report openable locations). */
+    val filePath: String? = null,
 ) : PreviewerCommand {
     override val type: String = "definition"
 }
