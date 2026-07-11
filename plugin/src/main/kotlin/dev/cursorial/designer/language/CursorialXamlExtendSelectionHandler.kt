@@ -31,7 +31,7 @@ class CursorialXamlExtendSelectionHandler : ExtendWordSelectionHandlerBase() {
         wordRange(editorText, cursorOffset, value) { it.isLetterOrDigit() || it == '_' || it == '.' || it == ':' }?.let(ranges::add)
 
         // Every balanced {…} group in the value containing the caret, innermost to outermost.
-        var innermost: TextRange? = null
+        val groups = mutableListOf<TextRange>()
         val open = ArrayDeque<Int>()
         for (i in value.startOffset until value.endOffset) {
             when (editorText[i]) {
@@ -41,17 +41,18 @@ class CursorialXamlExtendSelectionHandler : ExtendWordSelectionHandlerBase() {
                     if (cursorOffset in (start + 1)..i) {
                         val group = TextRange(start, i + 1)
                         ranges.add(group)
-                        if (innermost == null || group.startOffset > innermost!!.startOffset)
-                            innermost = group
+                        groups.add(group)
                     }
                 }
             }
         }
 
-        // The Param=Value (or positional argument) segment inside the innermost group — the
-        // rung between a value token and the whole extension. Segments split on top-level
-        // commas; the first one starts after the extension name.
-        innermost?.let { group ->
+        // The Param=Value (or positional argument) segment containing the caret, at EVERY
+        // nesting level — `{Binding X, RelativeSource={RelativeSource Self|}}` must offer
+        // `RelativeSource={RelativeSource Self}` between the inner group and the whole outer
+        // extension. Segments split on top-level commas; the first starts after the extension
+        // name.
+        for (group in groups) {
             var i = group.startOffset + 1
             while (i < group.endOffset && editorText[i].isWhitespace()) i++
             while (i < group.endOffset && !editorText[i].isWhitespace() && editorText[i] != '}') i++ // extension name

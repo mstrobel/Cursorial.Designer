@@ -70,8 +70,11 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
             LookupElementBuilder.create(text)
         detail?.let { builder = builder.withTypeText(it, true) }
         if (insert != null && caret != null) {
+            // A parked caret means the insert stubbed a spot to fill ({StaticResource |},
+            // AncestorType=|) — chain straight into the next completion list.
             builder = builder.withInsertHandler { context, _ ->
                 context.editor.caretModel.moveToOffset(context.startOffset + caret)
+                com.intellij.codeInsight.AutoPopupController.getInstance(context.project).scheduleAutoPopup(context.editor)
             }
         }
         builder = when (kind) {

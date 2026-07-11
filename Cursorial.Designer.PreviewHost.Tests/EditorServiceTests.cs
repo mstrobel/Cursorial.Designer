@@ -765,6 +765,60 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_resource_extension_stubs_for_attribute_values()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Background=\"\n</StackPanel>";
+        var line2 = "    <Button Background=\"";
+        _session.Execute(new CompleteCommand { Id = 124, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        // Just the extensions, caret parked inside — the key list is the NEXT completion.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "StaticResource", Insert: "{StaticResource }", Caret: 16 });
+        Assert.Contains(completions.Items, i => i is { Text: "DynamicResource", Insert: "{DynamicResource }", Caret: 17 });
+    }
+
+    [Fact]
+    public void Complete_offers_binding_paths_before_following_named_arguments()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding  RelativeSource={{RelativeSource Self}}}}\"/>\n</StackPanel>";
+        var line2 = "    <TextBlock Text=\"{Binding  RelativeSource={RelativeSource Self}}\"/>";
+        var column = line2.IndexOf("{Binding ", StringComparison.Ordinal) + "{Binding ".Length + 1; // between the two spaces
+        _session.Execute(new CompleteCommand { Id = 125, Xaml = xaml, Line = 2, Column = column });
+
+        // Source inference reads the RelativeSource clause AFTER the caret: Self → TextBlock.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "Text");
+    }
+
+    [Fact]
+    public void Complete_wraps_registered_key_constants_in_static_references()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Background=\"{{StaticResource \n</StackPanel>";
+        var line2 = "    <Button Background=\"{StaticResource ";
+        _session.Execute(new CompleteCommand { Id = 123, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        // Key constants from every REGISTERED assembly insert as static references, not raw
+        // strings — CursorialDialogThemeKeys regressed here when Dialogs had no xmlns map.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i =>
+            i.Text == "CursorialDialogThemeKeys.CommandLinkIcon"
+            && i.Insert == "{x:Static CursorialDialogThemeKeys.CommandLinkIcon}");
+    }
+
+    [Fact]
+    public void Analyze_classifies_xmlns_prefixes()
+    {
+        var ns = "clr-namespace:Cursorial.UI.Bars;assembly=Cursorial.UI.Bars";
+        var xaml = $"<StackPanel {Xmlns} xmlns:bars=\"{ns}\">\n    <bars:Toolbar/>\n</StackPanel>";
+        _session.Execute(new AnalyzeCommand { Id = 122, Xaml = xaml, Classify = true });
+
+        var tokens = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent)).Tokens!;
+        Assert.Contains(tokens, t => t is { Kind: "namespace", Line: 1, Length: 4 }); // bars in the declaration
+        Assert.Contains(tokens, t => t is { Kind: "namespace", Line: 2, Length: 4 }); // bars in the tag
+        Assert.Contains(tokens, t => t is { Kind: "element", Line: 2, Length: 7 });   // Toolbar, bare
+    }
+
+    [Fact]
     public void Analyze_classifies_design_data_context_types()
     {
         var xaml = $"<StackPanel {Xmlns} xmlns:d=\"https://cursorial.dev/xaml/design\">\n    <StackPanel d:DataContext=\"Button\"/>\n</StackPanel>";

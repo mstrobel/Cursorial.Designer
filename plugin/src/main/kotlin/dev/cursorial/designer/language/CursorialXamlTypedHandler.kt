@@ -21,8 +21,9 @@ class CursorialXamlTypedHandler : TypedHandlerDelegate() {
     override fun checkAutoPopup(charTyped: Char, project: Project, editor: Editor, file: PsiFile): Result {
         // ':', '#', '.', and '/' start pseudo-class / named-element / style-class /
         // template-combinator tokens in selectors ('.' also starts attached properties in
-        // attribute names); '=' starts extension parameter values ({Binding Path=…}).
-        if (charTyped != ':' && charTyped != '#' && charTyped != '.' && charTyped != '/' && charTyped != '=') return Result.CONTINUE
+        // attribute names); '=' starts extension parameter values ({Binding Path=…}); '{'
+        // starts a markup extension (its name list pops right away).
+        if (charTyped != ':' && charTyped != '#' && charTyped != '.' && charTyped != '/' && charTyped != '=' && charTyped != '{') return Result.CONTINUE
         val virtualFile = file.virtualFile ?: return Result.CONTINUE
         if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return Result.CONTINUE
         com.intellij.codeInsight.AutoPopupController.getInstance(project).scheduleAutoPopup(editor)
@@ -30,9 +31,14 @@ class CursorialXamlTypedHandler : TypedHandlerDelegate() {
     }
 
     override fun charTyped(c: Char, project: Project, editor: Editor, file: PsiFile): Result {
-        if (c != '>' && c != '/') return Result.CONTINUE
+        if (c != '>' && c != '/' && c != '{' && c != '}') return Result.CONTINUE
         val virtualFile = file.virtualFile ?: return Result.CONTINUE
         if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return Result.CONTINUE
+
+        // Brace pairing works on raw text, so it applies to XML-PSI files too — the platform's
+        // XML handlers know nothing about markup-extension braces inside attribute values.
+        if (c == '{' || c == '}') return handleBrace(c, editor)
+
         // XML-derived PSI (the owned file type) already gets the platform's XML auto-closing;
         // inserting a second closing tag would double it. This handler serves only files with
         // no XML PSI (plain text).
@@ -42,6 +48,60 @@ class CursorialXamlTypedHandler : TypedHandlerDelegate() {
             '>' -> autoCloseTag(editor)
             else -> completeEndTag(editor)
         }
+    }
+
+    /**
+     * `{` inside an attribute value inserts the matching `}` (caret between); `}` typed against
+     * a pending close just steps over it instead of doubling up.
+     */
+    private fun handleBrace(c: Char, editor: Editor): Result {
+        val text = editor.document.charsSequence
+        val typedAt = editor.caretModel.offset - 1
+        if (typedAt < 0 || text[typedAt] != c || !insideAttributeValue(text, typedAt)) return Result.CONTINUE
+
+        if (c == '}') {
+            val next = typedAt + 1
+            if (next < text.length && text[next] == '}' && closesExceedOpens(text, next)) {
+                editor.document.deleteString(next, next + 1)
+                return Result.STOP
+            }
+            return Result.CONTINUE
+        }
+
+        // '{{' escapes a literal brace — no pairing.
+        if (typedAt >= 1 && text[typedAt - 1] == '{') return Result.CONTINUE
+        EditorModificationUtil.insertStringAtCaret(editor, "}", false, false)
+        return Result.STOP
+    }
+
+    /** Whether [position] sits inside a quoted attribute value (odd quotes since the nearest `<`). */
+    private fun insideAttributeValue(text: CharSequence, position: Int): Boolean {
+        var i = position - 1
+        var quotes = 0
+        while (i >= 0) {
+            when (text[i]) {
+                '"' -> quotes++
+                '<', '>' -> return text[i] == '<' && quotes % 2 == 1
+            }
+            i--
+        }
+        return false
+    }
+
+    /** Whether the attribute value around [position] has more `}` than `{` — a duplicate close. */
+    private fun closesExceedOpens(text: CharSequence, position: Int): Boolean {
+        var start = position
+        while (start > 0 && text[start - 1] != '"') start--
+        var balance = 0
+        var i = start
+        while (i < text.length && text[i] != '"') {
+            when (text[i]) {
+                '{' -> balance--
+                '}' -> balance++
+            }
+            i++
+        }
+        return balance > 0
     }
 
     /** After `<Foo Bar="…">` is completed with `>`, insert `</Foo>` without moving the caret. */

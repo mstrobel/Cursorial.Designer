@@ -365,6 +365,24 @@ internal static partial class EditorServices
                     items.Add(new CompletionItemInfo { Text = "*", Kind = "value", Detail = "star (weighted share)" });
                 }
 
+                // Resource-reference stubs — just the extensions, a quick chain into the key
+                // list once the caret parks inside (type references never come from resources).
+                if (underlying != typeof(Type) && !context.Prefix.Contains('{'))
+                {
+                    foreach (var extension in (string[])["StaticResource", "DynamicResource"])
+                    {
+                        var insert = "{" + extension + " }";
+                        items.Add(new CompletionItemInfo
+                        {
+                            Text = extension,
+                            Kind = "value",
+                            Detail = "markup extension",
+                            Insert = insert,
+                            Caret = insert.Length - 1,
+                        });
+                    }
+                }
+
                 break;
             }
         }
@@ -611,10 +629,33 @@ internal static partial class EditorServices
         var rest = body[(body.IndexOf(' ') is var space && space >= 0 ? space : body.Length)..];
         var argument = rest[(rest.LastIndexOf(',') + 1)..].TrimStart();
 
+        // Source inference must see the WHOLE extension, not just the text before the caret —
+        // {Binding | RelativeSource={RelativeSource Self}} infers from a clause the caret
+        // precedes. Scan forward to the extension's close (a quote ends the value mid-edit).
+        var after = Math.Clamp(caretOffset, 0, xaml.Length);
+        var afterDepth = 0;
+        while (after < xaml.Length && xaml[after] != '"')
+        {
+            if (xaml[after] == '{')
+            {
+                afterDepth++;
+            }
+            else if (xaml[after] == '}')
+            {
+                if (afterDepth == 0)
+                    break;
+                afterDepth--;
+            }
+
+            after++;
+        }
+
+        var fullBody = body + xaml[Math.Clamp(caretOffset, 0, xaml.Length)..after];
+
         var equals = argument.IndexOf('=');
         return equals >= 0
-            ? CompleteExtensionNamedValue(name, argument[..equals].Trim(), argument[(equals + 1)..].TrimStart(), xaml, caretOffset, body, hostElementName, namespaces, provider)
-            : CompleteExtensionArgument(name, argument, xaml, caretOffset, body, hostElementName, namespaces, provider);
+            ? CompleteExtensionNamedValue(name, argument[..equals].Trim(), argument[(equals + 1)..].TrimStart(), xaml, caretOffset, fullBody, hostElementName, namespaces, provider)
+            : CompleteExtensionArgument(name, argument, xaml, caretOffset, fullBody, hostElementName, namespaces, provider);
     }
 
     /// <summary>Folds a prefixed intrinsic (<c>x:Static</c> under any prefix) to its canonical form.</summary>
