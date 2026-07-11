@@ -169,6 +169,18 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_property_elements_after_element_dot()
+    {
+        // "<Button." inside a Button offers its members as property elements.
+        var xaml = $"<StackPanel {Xmlns}>\n  <Button>\n    <Button.\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 61, Xaml = xaml, Line = 3, Column = 13 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Button.Content", Detail: "property element" });
+        Assert.Contains(completions.Items, i => i.Text == "Button.Resources");
+    }
+
+    [Fact]
     public void Complete_offers_attached_properties_of_the_enclosing_parent()
     {
         var xaml = $"<DockPanel {Xmlns}>\n    <Button Do\n</DockPanel>";

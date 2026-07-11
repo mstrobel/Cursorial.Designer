@@ -160,6 +160,33 @@ internal static partial class EditorServices
         {
             case ContextKind.ElementName:
             {
+                // Property-element position: "<Button." offers Button's members as property
+                // elements; "<Grid." inside another parent offers Grid's ATTACHED properties.
+                var elementDot = context.Prefix.IndexOf('.');
+                if (elementDot > 0)
+                {
+                    var ownerName = context.Prefix[..elementDot];
+                    var owner = ResolveElement(ownerName, namespaces, provider);
+                    if (owner is not null)
+                    {
+                        var ownerIsParent = string.Equals(ownerName, context.ParentElement, StringComparison.Ordinal);
+                        if (ownerIsParent)
+                        {
+                            foreach (var member in provider.GetKnownMemberNames(owner.ClrType))
+                                items.Add(new CompletionItemInfo { Text = $"{ownerName}.{member}", Kind = "element", Detail = "property element" });
+                        }
+
+                        var ownerClr = owner.ClrType.UnderlyingSystemType;
+                        if (ownerClr is not null)
+                        {
+                            foreach (var attached in AttachedPropertyNames(ownerClr))
+                                items.Add(new CompletionItemInfo { Text = $"{ownerName}.{attached}", Kind = "element", Detail = "attached" });
+                        }
+                    }
+
+                    break;
+                }
+
                 // Contextual filtering: only instantiable types (statics/interfaces/abstracts
                 // have no activation path), narrowed to what the insertion point accepts — a
                 // panel's children take UIElements; a collection-typed property element accepts
