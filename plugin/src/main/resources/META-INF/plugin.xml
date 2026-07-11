@@ -23,6 +23,9 @@
                            implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
         <completion.contributor language="any"
                                 implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
+        <!-- Tag auto-closing: Rider's XAML file type exposes no XML PSI on the frontend, so the
+             platform's XML typed handlers never fire; this one fills the gap. -->
+        <typedHandler implementation="dev.cursorial.designer.language.CursorialXamlTypedHandler" />
 
         <!--
             dev.cursorial.designer.settings.CursorialDesignerSettings is a light service
