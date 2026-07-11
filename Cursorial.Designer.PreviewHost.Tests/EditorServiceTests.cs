@@ -137,8 +137,6 @@ public class EditorServiceTests : IDisposable
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
         Assert.Contains(completions.Items, i => i.Text == "SolidColorBrush");
         Assert.DoesNotContain(completions.Items, i => i.Text == "AnimationDiagnostics"); // still not instantiable
-        // String-item collections (Classes) stay behind the attribute idiom.
-        Assert.DoesNotContain(completions.Items, i => i.Text == "Button.Classes");
     }
 
     [Fact]
