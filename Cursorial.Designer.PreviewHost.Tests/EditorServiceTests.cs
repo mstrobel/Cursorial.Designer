@@ -561,6 +561,32 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_style_classes_in_selectors()
+    {
+        var xaml = $"<StackPanel {Xmlns} Classes=\"fancy accent\">\n    <Style Selector=\"Button.\n</StackPanel>";
+        var line2 = "    <Style Selector=\"Button.";
+        _session.Execute(new CompleteCommand { Id = 100, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "caps-unicode", Detail: "capability" });
+        Assert.Contains(completions.Items, i => i is { Text: "caps-nocolor", Detail: "capability" });
+        Assert.Contains(completions.Items, i => i is { Text: "fancy", Detail: "document" });
+        Assert.Contains(completions.Items, i => i is { Text: "accent", Detail: "document" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "caps-ascii"); // reserved, never stamped
+    }
+
+    [Fact]
+    public void Complete_offers_template_combinator_after_slash()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button:pressed /\n</StackPanel>";
+        var line2 = "    <Style Selector=\"Button:pressed /";
+        _session.Execute(new CompleteCommand { Id = 101, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "template/", Detail: "combinator" });
+    }
+
+    [Fact]
     public void Hover_resolves_interaction_pseudo_classes()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button:pointerover\"/>\n</StackPanel>";

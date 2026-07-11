@@ -695,7 +695,8 @@ internal static partial class EditorServices
         {
             ':' => PseudoClassItems(namespaces, provider),
             '#' => NamedElementItems(xaml),
-            '.' => [],
+            '.' => StyleClassItems(xaml),
+            '/' => [new CompletionItemInfo { Text = "template/", Kind = "value", Detail = "combinator" }],
             _ => SelectorTypeItems(namespaces, provider),
         };
     }
@@ -731,6 +732,28 @@ internal static partial class EditorServices
         }
 
         items.Add(new CompletionItemInfo { Text = "is", Kind = "value", Detail = "operator", Insert = "is(" });
+        return items.DistinctBy(item => item.Text).ToList();
+    }
+
+    [GeneratedRegex("\\bClasses\\s*=\\s*\"([^\"]+)\"")]
+    private static partial Regex ClassesAttribute();
+
+    /// <summary>Style classes after '.': the framework's caps-* capability catalog + every class the document assigns.</summary>
+    private static List<CompletionItemInfo> StyleClassItems(string xaml)
+    {
+        var items = new List<CompletionItemInfo>();
+        foreach (var name in Cursorial.UI.CapabilityClasses.Names)
+            items.Add(new CompletionItemInfo { Text = name, Kind = "value", Detail = "capability" });
+
+        foreach (Match match in ClassesAttribute().Matches(xaml))
+        {
+            foreach (var name in match.Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!name.StartsWith("caps-", StringComparison.Ordinal) && !name.StartsWith(':'))
+                    items.Add(new CompletionItemInfo { Text = name, Kind = "value", Detail = "document" });
+            }
+        }
+
         return items.DistinctBy(item => item.Text).ToList();
     }
 
@@ -781,7 +804,12 @@ internal static partial class EditorServices
         return marker switch
         {
             '#' => NamedElementSymbol(xaml, documentPath, token),
-            '.' => new SymbolInfo($".{token}", $"style class .{token}", null, null, [], null),
+            '.' => new SymbolInfo(
+                $".{token}",
+                Cursorial.UI.CapabilityClasses.Names.Contains(token)
+                    ? $"capability class .{token} (engine-stamped from the effective capability record)"
+                    : $"style class .{token}",
+                null, null, [], null),
             ':' => PseudoClassSymbol(token),
             _ => SymbolFromName(token, offset - start, namespaces, provider),
         };
