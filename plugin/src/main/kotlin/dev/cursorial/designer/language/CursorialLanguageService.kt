@@ -49,6 +49,10 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     @Volatile
     private var process: PreviewHostProcess? = null
 
+    /** The host binary's timestamp at spawn — a rebuilt host must serve the NEW bits. */
+    @Volatile
+    private var hostDllStamp = 0L
+
     private val listener = object : PreviewHostProcess.Listener {
         override fun onEvent(event: PreviewerEvent) {
             val replyTo = when (event) {
@@ -141,14 +145,26 @@ class CursorialLanguageService(private val project: Project) : Disposable {
 
     @Synchronized
     private fun ensureProcess(contextFile: VirtualFile?): PreviewHostProcess? {
-        process?.takeIf { it.isRunning }?.let { return it }
-
         val hostDll = CursorialDesignerSettings.getInstance(project).previewHostDllPath(contextFile)
         if (hostDll == null) {
             logger.info("Cursorial language service unavailable: PreviewHost dll not found")
-            return null
+            return process?.takeIf { it.isRunning }
         }
 
+        val stamp = hostDll.toFile().lastModified()
+        process?.takeIf { it.isRunning }?.let { existing ->
+            if (stamp == hostDllStamp)
+                return existing
+            // The host binary was rebuilt: a language service serving stale code is the classic
+            // "the feature exists but the IDE disagrees" trap. Restart onto the new bits; the
+            // request that triggered this degrades gracefully and the next one is served fresh.
+            logger.info("Preview host binary changed; restarting language service")
+            hostDllStamp = stamp
+            existing.restart()
+            return existing
+        }
+
+        hostDllStamp = stamp
         val fresh = process ?: PreviewHostProcess(hostDll).also {
             it.addListener(listener)
             Disposer.register(this, it)

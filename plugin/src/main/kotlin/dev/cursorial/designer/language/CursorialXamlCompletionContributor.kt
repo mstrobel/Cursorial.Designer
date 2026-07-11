@@ -45,8 +45,18 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
                 val completions = CursorialLanguageService.getInstance(parameters.originalFile.project)
                     .complete(document.text, line + 1, column, file) ?: return
 
+                // Own the prefix: the platform's default guess swallows too much at a caret
+                // hard against '=' ({Binding Path=| matched nothing until a space was typed).
+                // The prefix is the identifier-ish run before the caret — every delimiter
+                // ('=', '{', ',', '.', quotes, whitespace) is a hard break.
+                val text = document.charsSequence
+                var prefixStart = offset
+                while (prefixStart > 0 && (text[prefixStart - 1].isLetterOrDigit() || text[prefixStart - 1] == '_' || text[prefixStart - 1] == '-'))
+                    prefixStart--
+                val matched = result.withPrefixMatcher(text.subSequence(prefixStart, offset).toString())
+
                 for (item in completions.items)
-                    result.addElement(lookup(item.text, item.kind, item.detail, item.insert))
+                    matched.addElement(lookup(item.text, item.kind, item.detail, item.insert))
             }
         })
     }
