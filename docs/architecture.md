@@ -9,7 +9,7 @@ whose XAML renders to a character-cell grid rather than pixels.
 A naive previewer would run the app against a PTY and re-interpret its VT byte stream — which
 means writing a terminal emulator inside the IDE. We don't. Cursorial's `FrameRenderer` is
 strictly the *last* pipeline stage ("composited `CellBuffer` → minimal VT bytes"), and the
-framework already exposes the stage before it: `Cursorial.UI.Testing.UITestHost` hosts the full
+framework already exposes the stage before it: `Cursorial.UI.Hosting.Headless.UIHeadlessHost` hosts the full
 real pipeline (layout, styling, binding, themes, input routing, animation on a frozen clock)
 headlessly against a `SyntheticTerminalHost`, exposing the composited screen as a `CellBuffer` of
 plain `Cell(Grapheme, Kind, Style)` records.
@@ -27,7 +27,7 @@ the judgment docs).
 ┌─────────────── Rider ────────────────┐      ┌────── PreviewHost (net10.0) ──────┐
 │ Kotlin plugin (frontend-only)        │      │ StdioServer (main = UI thread)    │
 │  · split editor: text + preview      │ stdin│  · PreviewSession                 │
-│  · CellGridPanel paints frames       │─────▶│     · UITestHost (headless)       │
+│  · CellGridPanel paints frames       │─────▶│     · UIHeadlessHost (headless)       │
 │  · sends resize/pointer/key/reload   │stdout│     · XamlLoader (CollectAll)     │
 │  · restarts host on crash/rebuild    │◀─────│     · hit-test / property grid    │
 └──────────────────────────────────────┘      └───────────────────────────────────┘
@@ -35,7 +35,7 @@ the judgment docs).
 
 - **Transport**: newline-delimited JSON over stdio (`docs/protocol.md`). stderr is free logging.
 - **Threading**: the host's main thread runs the command loop and *is* the UI thread
-  (`UITestHost` is thread-affine to its creator; every framework API the session touches —
+  (`UIHeadlessHost` is thread-affine to its creator; every framework API the session touches —
   hit-test, property reads, theme setters — demands that thread). A background thread pumps
   stdin into a bounded queue so frame emission never blocks on a slow reader.
 - **Determinism**: frames advance only when a command steps them; time is a `FakeTimeProvider`

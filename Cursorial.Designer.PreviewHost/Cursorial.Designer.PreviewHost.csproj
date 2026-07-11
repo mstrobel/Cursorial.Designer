@@ -14,13 +14,13 @@
 
     <!--
         The framework comes from the sibling Cursorial checkout (CursorialRepoRoot, set in
-        Directory.Build.props, overridable with -p:CursorialRepoRoot=...). Cursorial.UI.Testing
+        Directory.Build.props, overridable with -p:CursorialRepoRoot=...). Cursorial.UI.Hosting.Headless
         is the headless hosting substrate (SyntheticTerminalHost + manual frame stepping) — the
         same engine the framework's own tests run on, which is exactly why the preview cannot
         diverge from production rendering.
     -->
     <ItemGroup>
-        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Testing\Cursorial.UI.Testing.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Hosting.Headless\Cursorial.UI.Hosting.Headless.csproj" />
         <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Xaml\Cursorial.UI.Xaml.csproj" />
         <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Themes\Cursorial.UI.Themes.csproj" />
         <!-- The whole first-party control family previews out of the box. -->

@@ -8,14 +8,14 @@ using Cursorial.Rendering;
 using Cursorial.UI;
 using Cursorial.UI.Bars;
 using Cursorial.UI.Controls;
-using Cursorial.UI.Testing;
+using Cursorial.UI.Hosting.Headless;
 using Cursorial.UI.Themes;
 using Cursorial.UI.Xaml;
 
 namespace Cursorial.Designer.PreviewHost;
 
 /// <summary>
-/// One designer preview: a headless <see cref="UITestHost"/> (the framework's own full-pipeline
+/// One designer preview: a headless <see cref="UIHeadlessHost"/> (the framework's own full-pipeline
 /// harness — real layout, styling, binding, theming) driven by protocol commands. The thread that
 /// constructs the session and calls <see cref="Execute"/> is the UI thread; the frame loop only
 /// advances when a command steps it, so previews are deterministic and cost nothing while idle.
@@ -40,7 +40,7 @@ internal sealed class PreviewSession : IDisposable
     // for a held key is a keyboard auto-repeat, which the framework models as IsRepeat.
     private readonly HashSet<string> _heldKeys = new(StringComparer.OrdinalIgnoreCase);
 
-    private UITestHost? _host;
+    private UIHeadlessHost? _host;
     private StyleQuantizer? _quantizer;
 
     // The last emitted frame's full content, for no-change suppression and row-level deltas.
@@ -181,7 +181,7 @@ internal sealed class PreviewSession : IDisposable
             });
         }
 
-        _host = UITestHost.Create(new UITestHostOptions
+        _host = UIHeadlessHost.Create(new UIHeadlessHostOptions
         {
             Capabilities = capabilities,
             InitialSize = new Size(command.Columns, command.Rows),
@@ -217,7 +217,7 @@ internal sealed class PreviewSession : IDisposable
         SettleAndEmitFrame();
     }
 
-    private UITestHost Host(PreviewCommand command)
+    private UIHeadlessHost Host(PreviewCommand command)
         => _host ?? throw new InvalidOperationException($"'{command.GetType().Name}' arrived before 'initialize'.");
 
     public void Dispose() => _host?.Dispose();
@@ -824,13 +824,13 @@ internal sealed class PreviewSession : IDisposable
     {
         (var known, capabilities) = name?.ToLowerInvariant() switch
         {
-            null or "kitty-truecolor" => (true, TestCapabilities.KittyTruecolor),
-            "ansi16" => (true, TestCapabilities.Ansi16Legacy),
-            "no-motion" => (true, TestCapabilities.NoMotion),
-            "kitty-graphics" => (true, TestCapabilities.KittyGraphics),
-            "sixel" => (true, TestCapabilities.SixelGraphics),
-            "iterm2" => (true, TestCapabilities.ITerm2Graphics),
-            _ => (false, TestCapabilities.KittyTruecolor),
+            null or "kitty-truecolor" => (true, HeadlessCapabilities.KittyTruecolor),
+            "ansi16" => (true, HeadlessCapabilities.Ansi16Legacy),
+            "no-motion" => (true, HeadlessCapabilities.NoMotion),
+            "kitty-graphics" => (true, HeadlessCapabilities.KittyGraphics),
+            "sixel" => (true, HeadlessCapabilities.SixelGraphics),
+            "iterm2" => (true, HeadlessCapabilities.ITerm2Graphics),
+            _ => (false, HeadlessCapabilities.KittyTruecolor),
         };
         return known;
     }
@@ -885,7 +885,7 @@ internal sealed class PreviewSession : IDisposable
         EmitFrame();
     }
 
-    private static void Settle(UITestHost host)
+    private static void Settle(UIHeadlessHost host)
     {
         // Fast path: most content goes idle within a few frames.
         if (host.RunUntilIdle(maxFrames: 20))
