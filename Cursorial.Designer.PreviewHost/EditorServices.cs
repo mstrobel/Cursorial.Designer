@@ -256,7 +256,15 @@ internal static partial class EditorServices
                     foreach (var member in provider.GetKnownMemberNames(parentType.ClrType))
                     {
                         var memberType = parentType.TryGetMember(member)?.ValueType.UnderlyingSystemType;
-                        if (memberType is null || memberType == typeof(string) || ItemTypeOf(memberType) is null)
+                        if (memberType is null || memberType == typeof(string))
+                            continue;
+
+                        // String/primitive item types (Classes and friends) are technically
+                        // populatable via <x:String> primitive elements, but the attribute form
+                        // is the idiom — this offering exists for collections that NEED element
+                        // form, not ones that merely tolerate it.
+                        var itemType = ItemTypeOf(memberType);
+                        if (itemType is null || itemType == typeof(string) || itemType.IsPrimitive)
                             continue;
 
                         items.Add(new CompletionItemInfo
