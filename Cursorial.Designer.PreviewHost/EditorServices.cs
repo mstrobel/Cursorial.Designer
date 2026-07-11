@@ -237,6 +237,29 @@ internal static partial class EditorServices
                     }
                 }
 
+                // The parent's COLLECTION-typed members as property elements: the ContentProperty
+                // narrowing above hides them (Style's content is Setters, so <Style.Styles>
+                // never surfaced), yet collections can ONLY be populated in element form.
+                // Scalar members stay behind the explicit "<Parent." gesture — offering every
+                // property here would be noise.
+                if (context.ParentElement is { } parentName2 && !parentName2.Contains('.')
+                    && ResolveElement(parentName2, namespaces, provider) is { } parentType)
+                {
+                    foreach (var member in provider.GetKnownMemberNames(parentType.ClrType))
+                    {
+                        var memberType = parentType.TryGetMember(member)?.ValueType.UnderlyingSystemType;
+                        if (memberType is null || memberType == typeof(string) || ItemTypeOf(memberType) is null)
+                            continue;
+
+                        items.Add(new CompletionItemInfo
+                        {
+                            Text = $"{parentName2}.{member}",
+                            Kind = "element",
+                            Detail = "property element",
+                        });
+                    }
+                }
+
                 break;
             }
 

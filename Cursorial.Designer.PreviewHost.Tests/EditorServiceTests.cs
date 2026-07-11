@@ -67,6 +67,26 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_collection_property_elements_alongside_content()
+    {
+        // Style's ContentProperty is Setters, so the narrowed element list never surfaced
+        // <Style.Styles> — but collections can ONLY be populated in element form.
+        _session.Execute(new CompleteCommand
+        {
+            Id = 34,
+            Xaml = $"<StackPanel {Xmlns}>\n  <Style>\n    <St\n</StackPanel>",
+            Line = 3,
+            Column = 7,
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Style.Setters", Detail: "property element" });
+        Assert.Contains(completions.Items, i => i is { Text: "Style.Children", Detail: "property element" }); // nested styles
+        // Scalar members stay behind the explicit "<Style." gesture.
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Style.Selector");
+    }
+
+    [Fact]
     public void Complete_narrows_elements_to_a_property_elements_type()
     {
         _session.Execute(new CompleteCommand
