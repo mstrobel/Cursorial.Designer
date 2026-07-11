@@ -31,6 +31,8 @@
         <lang.documentationProvider language="any"
                                     implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
         <gotoDeclarationHandler implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
+        <!-- Ctrl+W steps through markup-extension structure ({x:Static Type.Member} nesting). -->
+        <extendWordSelectionHandler implementation="dev.cursorial.designer.language.CursorialXamlExtendSelectionHandler" />
 
         <!--
             dev.cursorial.designer.settings.CursorialDesignerSettings is a light service

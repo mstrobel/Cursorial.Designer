@@ -52,6 +52,11 @@ internal sealed class PreviewSession : IDisposable
     // content from another document).
     private Uri? _documentUri;
 
+    // A document whose root IS a Window shows through the WindowManager (windows are not
+    // parentable children: hosted in the backdrop Border they render scattered chrome, no
+    // frame, and dead window controls). Tracked so reloads close the previous one.
+    private Window? _shownWindow;
+
     // The preview chrome: loaded roots are hosted in a Border whose background is the theme's
     // desktop elevation, because panels have no background fill of their own and a designed root
     // is not necessarily hosted in a Window. Never surfaced through hit tests — the user didn't
@@ -303,8 +308,16 @@ internal sealed class PreviewSession : IDisposable
         _idsByElement.Clear();
         _documentUri = sourceUri;
 
-        var previous = _container!.Child;
-        _container.Child = element;
+        var previousChild = _container!.Child;
+        var previousWindow = _shownWindow;
+        _container.Child = null;
+        if (previousWindow is not null)
+        {
+            previousWindow.Close();
+            _shownWindow = null;
+        }
+
+        AttachRoot(element);
 
         _emit(new DiagnosticsEvent { ReplyTo = command.Id, SourceUri = command.SourceUri, Items = diagnostics });
 
@@ -315,7 +328,18 @@ internal sealed class PreviewSession : IDisposable
         SettleAndEmitFrame();
         if (_frameException is { } broken)
         {
-            _container.Child = previous;
+            if (_shownWindow is { } shown)
+            {
+                shown.Close();
+                _shownWindow = null;
+            }
+
+            _container.Child = null;
+            if (previousWindow is not null)
+                AttachRoot(previousWindow);
+            else
+                _container.Child = previousChild;
+
             _elementsById.Clear();
             _idsByElement.Clear();
             _frameException = null;
@@ -326,6 +350,24 @@ internal sealed class PreviewSession : IDisposable
                 Message = "The document threw during layout/render; reverted to the previous content.",
                 Detail = broken.ToString(),
             });
+        }
+    }
+
+    /// <summary>
+    /// Attaches a document root to the preview: Windows show through the WindowManager (the
+    /// only path that gives them placement, frame chrome, and working window controls); every
+    /// other element is hosted in the backdrop container.
+    /// </summary>
+    private void AttachRoot(UIElement element)
+    {
+        if (element is Window window)
+        {
+            window.Show();
+            _shownWindow = window;
+        }
+        else
+        {
+            _container!.Child = element;
         }
     }
 

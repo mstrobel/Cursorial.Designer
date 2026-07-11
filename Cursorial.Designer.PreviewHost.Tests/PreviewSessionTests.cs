@@ -72,6 +72,40 @@ public class PreviewSessionTests : IDisposable
         => string.Join('\n', Fold().Lines.Select(runs => string.Concat(runs.Select(r => r.Text))));
 
     [Fact]
+    public void Load_window_root_shows_through_the_window_manager()
+    {
+        Initialize();
+        Load($"""
+              <Window {Xmlns} Width="40" Height="10">
+                  <TextBlock Text="window content"/>
+              </Window>
+              """);
+
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+        Assert.Contains("window content", FrameText());
+
+        // And a reload swaps the window cleanly. The second window is OFFSET and smaller so a
+        // zombie surface from the first document would still peek out of the composite —
+        // painting the same rect over it would mask the leak.
+        Load($"""
+              <Window {Xmlns} Left="10" Top="3" Width="26" Height="8">
+                  <TextBlock Text="second revision"/>
+              </Window>
+              """);
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+        var text = FrameText();
+        Assert.Contains("second revision", text);
+        Assert.DoesNotContain("window content", text);
+
+        // And switching back to a plain panel root works too.
+        Load($"""<StackPanel {Xmlns}><TextBlock Text="plain again"/></StackPanel>""");
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+        var final = FrameText();
+        Assert.Contains("plain again", final);
+        Assert.DoesNotContain("second revision", final);
+    }
+
+    [Fact]
     public void Initialize_emits_a_frame_of_the_requested_size()
     {
         Initialize(columns: 42, rows: 7);
