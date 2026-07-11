@@ -478,6 +478,22 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Definition_on_selector_nesting_anchor_jumps_to_parent_selector()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n" +
+                   "    <Style Selector=\"Button.accent\">\n" +
+                   "        <Style Selector=\"^:pointerover\"/>\n" +
+                   "    </Style>\n</StackPanel>";
+        var line3 = "        <Style Selector=\"^:pointerover\"/>";
+        var column = line3.IndexOf('^') + 1;
+        _session.Execute(new DefinitionCommand { Id = 94, Xaml = xaml, Line = 3, Column = column, FilePath = "/tmp/View.xaml" });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal("/tmp/View.xaml", definition.File);
+        Assert.Equal(2, definition.Line); // the parent <Style Selector="Button.accent">
+    }
+
+    [Fact]
     public void Hover_resolves_plain_enum_values()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Button Visibility=\"Hidden\"/>\n</StackPanel>";

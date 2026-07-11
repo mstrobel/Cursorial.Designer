@@ -430,7 +430,7 @@ internal static partial class EditorServices
                 var value = attribute.Groups[2];
                 var valueStart = attributes.Index + value.Index;
                 if (offset >= valueStart && offset <= valueStart + value.Length)
-                    return SymbolFromValue(blanked, documentPath, nameGroup.Value, attrName.Value, value.Value, offset - valueStart, namespaces, provider);
+                    return SymbolFromValue(blanked, documentPath, nameGroup.Value, attrName.Value, value.Value, offset - valueStart, tag.Index, namespaces, provider);
             }
 
             return null; // inside the tag, but between symbols
@@ -555,13 +555,14 @@ internal static partial class EditorServices
         string attributeName,
         string value,
         int offsetInValue,
+        int enclosingTagOffset,
         Dictionary<string, string> namespaces,
         IXamlTypeMetadataProvider provider)
     {
         static bool PathChar(char c) => char.IsLetterOrDigit(c) || c is '.' or ':' or '_';
 
         if (attributeName == "Selector")
-            return SelectorSymbol(xaml, documentPath, value, offsetInValue, namespaces, provider);
+            return SelectorSymbol(xaml, documentPath, value, offsetInValue, enclosingTagOffset, namespaces, provider);
 
         // On an extension name itself ({Binding, {x:Static, {theme:Elevate)? Prefer the REALIZED
         // type when one exists — {Binding} forwards to the Binding class and its docs; only
@@ -676,10 +677,16 @@ internal static partial class EditorServices
         };
     }
 
-    /// <summary>The symbol under the caret in a style selector: a type, a #named element, a .class, or a :pseudo-class.</summary>
-    private static SymbolInfo? SelectorSymbol(string xaml, string? documentPath, string value, int offset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    /// <summary>The symbol under the caret in a style selector: a type, a #named element, a .class, a :pseudo-class, or the ^ nesting anchor.</summary>
+    private static SymbolInfo? SelectorSymbol(string xaml, string? documentPath, string value, int offset, int enclosingTagOffset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         static bool IdentChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '-';
+
+        // The ^ nesting anchor refers to the PARENT style's selector — jump there (deep style
+        // nests make the referent genuinely far away).
+        if ((offset < value.Length && value[offset] == '^') || (offset > 0 && value[offset - 1] == '^'))
+            return ParentSelectorSymbol(xaml, documentPath, enclosingTagOffset);
+
         var start = offset;
         while (start > 0 && IdentChar(value[start - 1]))
             start--;
@@ -745,6 +752,60 @@ internal static partial class EditorServices
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The nearest enclosing (unclosed) parent <c>&lt;Style&gt;</c> before <paramref name="beforeTag"/>:
+    /// the referent of a nested selector's <c>^</c> anchor. Hover shows the parent's selector
+    /// text; definition jumps to it in-document.
+    /// </summary>
+    private static SymbolInfo? ParentSelectorSymbol(string xaml, string? documentPath, int beforeTag)
+    {
+        var stack = new Stack<Match>();
+        foreach (Match tag in TagToken().Matches(xaml))
+        {
+            if (tag.Index >= beforeTag)
+                break;
+            if (tag.Groups[2].Value != "Style")
+                continue;
+
+            var closing = tag.Groups[1].Value.Length > 0;
+            var selfClosed = tag.Groups[4].Value.Length > 0;
+            if (closing)
+            {
+                if (stack.Count > 0)
+                    stack.Pop();
+            }
+            else if (!selfClosed)
+            {
+                stack.Push(tag);
+            }
+        }
+
+        if (stack.Count == 0)
+            return null;
+
+        var parent = stack.Peek();
+        var attributes = parent.Groups[3];
+        foreach (Match attribute in AttributeToken().Matches(attributes.Value))
+        {
+            if (attribute.Groups[1].Value != "Selector")
+                continue;
+
+            var valueOffset = attributes.Index + attribute.Groups[2].Index;
+            return new SymbolInfo(
+                "^",
+                $"parent selector \"{attribute.Groups[2].Value}\"",
+                null,
+                null,
+                [],
+                null,
+                DocumentLocation(xaml, documentPath, valueOffset));
+        }
+
+        return new SymbolInfo(
+            "^", "parent style", null, null, [], null,
+            DocumentLocation(xaml, documentPath, parent.Groups[2].Index));
     }
 
     /// <summary>An enum member as a symbol: docs from its field, definition via the enum's declaration.</summary>
