@@ -31,7 +31,9 @@ class CursorialXamlGotoDeclarationHandler : GotoDeclarationHandler {
         val text = editor.document.text
         val (line, column) = positionOf(text, offset)
         val result = CursorialLanguageService.getInstance(file.project)
-            .definition(text, line, column, virtualFile) ?: return null
+            .definition(text, line, column, virtualFile)
+        logger.info("goto result @$line:$column -> file=${result?.file} line=${result?.line} symbol=${result?.symbol}")
+        if (result == null) return null
 
         val path = result.file ?: return null
         // PDB document names use the build machine's separators ('\' for Windows-built

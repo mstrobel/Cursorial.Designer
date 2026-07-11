@@ -17,9 +17,14 @@
 
         <!-- Editor services for Cursorial XAML (gated per-file to documents carrying the
              cursorial.dev xmlns; every other .xaml file is untouched). -->
-        <!-- language="any": in Rider, .xaml may be owned by Rider's own XAML file type rather
-             than plain XML; the implementations gate per-file on the cursorial.dev marker. -->
-        <externalAnnotator language="any"
+        <!-- Language ids matter, and "any" is NOT universally honored: completion.contributor
+             supports it, but LanguageExtension-backed EPs (externalAnnotator,
+             lang.documentationProvider) silently never fire for it — register CONCRETE ids.
+             "Xaml" is Rider's own XAML language (what owns .xaml on the frontend); "TEXT" is
+             plain text (.cxaml or unassociated files). -->
+        <externalAnnotator language="Xaml"
+                           implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
+        <externalAnnotator language="TEXT"
                            implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
         <completion.contributor language="any"
                                 implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
@@ -28,7 +33,9 @@
         <typedHandler implementation="dev.cursorial.designer.language.CursorialXamlTypedHandler" />
         <!-- Quick documentation + go-to-declaration, answered by the language service (XML-doc
              summaries from the assemblies' doc files; source locations from portable PDBs). -->
-        <lang.documentationProvider language="any"
+        <lang.documentationProvider language="Xaml"
+                                    implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
+        <lang.documentationProvider language="TEXT"
                                     implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
         <gotoDeclarationHandler implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
         <!-- Ctrl+W steps through markup-extension structure ({x:Static Type.Member} nesting). -->
