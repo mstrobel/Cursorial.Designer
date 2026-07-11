@@ -694,6 +694,8 @@ internal static partial class EditorServices
             {
                 if (!type.IsClass || !(type.IsAbstract && type.IsSealed) || !type.Name.EndsWith("Keys", StringComparison.Ordinal))
                     continue;
+                if (KeySweepBlacklist.Contains(type.Name))
+                    continue;
                 foreach (var field in type.GetFields())
                 {
                     if (field.IsLiteral && field.FieldType == typeof(string) && field.GetRawConstantValue() is string value)
@@ -705,6 +707,13 @@ internal static partial class EditorServices
         _keyConstants = (assemblies.Length, entries);
         return entries;
     }
+
+    /// <summary>
+    /// *Keys classes that match the naming convention but are not resource keys (per Mike:
+    /// option/setting key catalogs pollute resource completion). A framework-level opt-out
+    /// convention would be the principled replacement for this list.
+    /// </summary>
+    private static readonly HashSet<string> KeySweepBlacklist = new(StringComparer.Ordinal) { "UserOptionKeys" };
 
     /// <summary>
     /// The document xmlns prefix under which <paramref name="type"/> resolves (empty string for

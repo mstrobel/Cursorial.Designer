@@ -151,7 +151,7 @@ internal static partial class EditorServices
 
             var nameGroup = tag.Groups[2];
             if (offset >= nameGroup.Index && offset <= nameGroup.Index + nameGroup.Length)
-                return SymbolFromName(nameGroup.Value, namespaces, provider);
+                return SymbolFromName(nameGroup.Value, offset - nameGroup.Index, namespaces, provider);
 
             var attributes = tag.Groups[3];
             foreach (Match attribute in AttributeToken().Matches(attributes.Value))
@@ -159,7 +159,7 @@ internal static partial class EditorServices
                 var attrName = attribute.Groups[1];
                 var nameStart = attributes.Index + attrName.Index;
                 if (offset >= nameStart && offset <= nameStart + attrName.Length)
-                    return SymbolFromAttribute(nameGroup.Value, attrName.Value, namespaces, provider);
+                    return SymbolFromAttribute(nameGroup.Value, attrName.Value, offset - nameStart, namespaces, provider);
 
                 var value = attribute.Groups[2];
                 var valueStart = attributes.Index + value.Index;
@@ -173,12 +173,20 @@ internal static partial class EditorServices
         return null;
     }
 
-    /// <summary>An element or property-element/attached name (<c>Button</c>, <c>Grid.Row</c>).</summary>
-    private static SymbolInfo? SymbolFromName(string name, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    /// <summary>
+    /// An element or property-element/attached name (<c>Button</c>, <c>Grid.Row</c>). For dotted
+    /// names the caret side of the '.' picks the symbol: on <c>Grid</c> → the type, on
+    /// <c>Row</c> → the member.
+    /// </summary>
+    private static SymbolInfo? SymbolFromName(string name, int offsetInName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var dot = name.IndexOf('.');
         if (dot > 0)
-            return MemberSymbol(name[..dot], name[(dot + 1)..], namespaces, provider);
+        {
+            return offsetInName <= dot
+                ? SymbolFromName(name[..dot], offsetInName, namespaces, provider)
+                : MemberSymbol(name[..dot], name[(dot + 1)..], namespaces, provider);
+        }
 
         var clr = ResolveElement(name, namespaces, provider)?.ClrType.UnderlyingSystemType;
         if (clr is null)
@@ -204,8 +212,8 @@ internal static partial class EditorServices
             clr.Assembly.GetName().Name);
     }
 
-    /// <summary>An attribute name: directive, attached (dotted), or a member of the element's type.</summary>
-    private static SymbolInfo? SymbolFromAttribute(string elementName, string attributeName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    /// <summary>An attribute name: directive, attached (dotted, caret side picks type vs member), or a member of the element's type.</summary>
+    private static SymbolInfo? SymbolFromAttribute(string elementName, string attributeName, int offsetInName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var colon = attributeName.IndexOf(':');
         if (colon > 0)
@@ -214,12 +222,18 @@ internal static partial class EditorServices
             if (namespaces.TryGetValue(prefix, out var uri) && uri == IntrinsicsUri)
                 return new SymbolInfo(attributeName, $"directive {attributeName}", null, null, [], "XAML intrinsics");
             attributeName = attributeName[(colon + 1)..]; // prefixed attached owner: fall through with the local name
+            offsetInName -= colon + 1;
         }
 
         var dot = attributeName.IndexOf('.');
-        return dot > 0
-            ? MemberSymbol(attributeName[..dot], attributeName[(dot + 1)..], namespaces, provider)
-            : MemberSymbol(elementName, attributeName, namespaces, provider);
+        if (dot > 0)
+        {
+            return offsetInName <= dot && offsetInName >= 0
+                ? SymbolFromName(attributeName[..dot], offsetInName, namespaces, provider)
+                : MemberSymbol(attributeName[..dot], attributeName[(dot + 1)..], namespaces, provider);
+        }
+
+        return MemberSymbol(elementName, attributeName, namespaces, provider);
     }
 
     /// <summary>A member on an owner: instance property, or attached via the field convention.</summary>
@@ -270,20 +284,24 @@ internal static partial class EditorServices
     /// <summary>Inside an attribute value: a markup-extension name, or an x:Static member path.</summary>
     private static SymbolInfo? SymbolFromValue(string value, int offsetInValue, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        // On an extension name itself ({Binding, {x:Static, {theme:Elevate)?
+        // On an extension name itself ({Binding, {x:Static, {theme:Elevate)? Prefer the REALIZED
+        // type when one exists — {Binding} forwards to the Binding class and its docs; only
+        // loader-level intrinsics with no CLR realization get the generic blurb.
         foreach (Match extension in ExtensionNameToken().Matches(value))
         {
             var name = extension.Groups[1];
             if (offsetInValue >= name.Index && offsetInValue <= name.Index + name.Length)
             {
-                var canonical = Canonical(name.Value, namespaces);
-                if (canonical.StartsWith("x:", StringComparison.Ordinal) || canonical is "Binding" or "StaticResource" or "DynamicResource" or "TemplateBinding")
-                    return new SymbolInfo(canonical, $"markup extension {{{canonical}}}", null, null, [], "XAML intrinsics");
-
                 var clr = (ResolveElement(name.Value, namespaces, provider) ?? ResolveElement(name.Value + "Extension", namespaces, provider))
                     ?.ClrType.UnderlyingSystemType;
-                return clr is null ? null : new SymbolInfo(
-                    clr.Name, $"markup extension {clr.FullName}", clr, null, [$"T:{DocTypeName(clr)}"], clr.Assembly.GetName().Name);
+                if (clr is not null)
+                    return new SymbolInfo(
+                        clr.Name, $"markup extension {clr.FullName}", clr, null, [$"T:{DocTypeName(clr)}"], clr.Assembly.GetName().Name);
+
+                var canonical = Canonical(name.Value, namespaces);
+                return canonical.StartsWith("x:", StringComparison.Ordinal) || canonical is "Binding" or "StaticResource" or "DynamicResource" or "TemplateBinding"
+                    ? new SymbolInfo(canonical, $"markup extension {{{canonical}}}", null, null, [], "XAML intrinsics")
+                    : null;
             }
         }
 

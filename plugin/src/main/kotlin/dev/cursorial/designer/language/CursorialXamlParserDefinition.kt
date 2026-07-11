@@ -37,6 +37,20 @@ class CursorialXamlResourceProvider : StandardResourceProvider {
         registrar.addIgnoredResource("https://cursorial.dev/xaml/design")
         registrar.addIgnoredResource("http://schemas.microsoft.com/expression/blend/2008")
         registrar.addIgnoredResource("http://schemas.openxmlformats.org/markup-compatibility/2006")
+        registrar.addIgnoredResource("clr-namespace:*")
+    }
+}
+
+/**
+ * Backstop for xmlns values the ignored-resources list can't pattern-match (project-specific
+ * clr-namespace URIs): drops the "URI is not registered" highlight in Cursorial documents.
+ * String-matched (English) — the ignored-resources list handles the fixed URIs regardless.
+ */
+class CursorialXamlHighlightFilter : com.intellij.codeInsight.daemon.impl.HighlightInfoFilter {
+    override fun accept(highlightInfo: com.intellij.codeInsight.daemon.impl.HighlightInfo, file: PsiFile?): Boolean {
+        if (file == null || file.language != CursorialXamlLanguage) return true
+        val description = highlightInfo.description ?: return true
+        return !description.startsWith("URI is not registered")
     }
 }
 
