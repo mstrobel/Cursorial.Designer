@@ -169,6 +169,39 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_attached_properties_of_the_enclosing_parent()
+    {
+        var xaml = $"<DockPanel {Xmlns}>\n    <Button Do\n</DockPanel>";
+        _session.Execute(new CompleteCommand { Id = 51, Xaml = xaml, Line = 2, Column = 15 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Kind: "attribute", Detail: "attached" });
+    }
+
+    [Fact]
+    public void Complete_offers_attached_properties_of_an_explicit_owner()
+    {
+        // Grid is not the parent here; the explicit dotted owner still completes.
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Grid.\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 52, Xaml = xaml, Line = 2, Column = 18 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "Grid.Row");
+        Assert.Contains(completions.Items, i => i.Text == "Grid.Column");
+    }
+
+    [Fact]
+    public void Complete_offers_enum_values_for_attached_attributes()
+    {
+        var xaml = $"<DockPanel {Xmlns}>\n    <Button DockPanel.Dock=\"\n</DockPanel>";
+        _session.Execute(new CompleteCommand { Id = 53, Xaml = xaml, Line = 2, Column = 29 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "Left");
+        Assert.Contains(completions.Items, i => i.Text == "Bottom");
+    }
+
+    [Fact]
     public void Complete_offers_markup_extension_names_after_open_brace()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{\n</StackPanel>";

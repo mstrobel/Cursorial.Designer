@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 
 using Cursorial.Designer.Protocol;
+using Cursorial.UI;
 using Cursorial.UI.Xaml;
 
 namespace Cursorial.Designer.PreviewHost;
@@ -143,7 +144,7 @@ internal static partial class EditorServices
         if (prefix.Contains('=') || prefix.Contains('"'))
             return new CompletionContext(ContextKind.None, "", "", "");
 
-        return new CompletionContext(ContextKind.AttributeName, elementName, "", prefix);
+        return new CompletionContext(ContextKind.AttributeName, elementName, "", prefix, FindParentElement(xaml, open));
     }
 
     /// <summary>Computes completion items for a 1-based (line, column) position.</summary>
@@ -196,6 +197,31 @@ internal static partial class EditorServices
                 {
                     foreach (var member in provider.GetKnownMemberNames(type.ClrType))
                         items.Add(new CompletionItemInfo { Text = member, Kind = "attribute" });
+                }
+
+                // Attached properties. Explicit owner ("Grid.Ro") completes that owner's attached
+                // set — owners may be STATIC classes, so resolution never goes through the
+                // instantiability filter. Without a dot, the enclosing parent's attached
+                // properties are offered (inside a Grid, a child naturally wants Grid.Row).
+                var attachedDot = context.Prefix.IndexOf('.');
+                if (attachedDot > 0)
+                {
+                    var ownerName = context.Prefix[..attachedDot];
+                    var owner = ResolveElement(ownerName, namespaces, provider)?.ClrType.UnderlyingSystemType;
+                    if (owner is not null)
+                    {
+                        foreach (var attached in AttachedPropertyNames(owner))
+                            items.Add(new CompletionItemInfo { Text = $"{ownerName}.{attached}", Kind = "attribute", Detail = "attached" });
+                    }
+                }
+                else if (context.ParentElement is { } parentName && !parentName.Contains('.'))
+                {
+                    var parent = ResolveElement(parentName, namespaces, provider)?.ClrType.UnderlyingSystemType;
+                    if (parent is not null)
+                    {
+                        foreach (var attached in AttachedPropertyNames(parent))
+                            items.Add(new CompletionItemInfo { Text = $"{parentName}.{attached}", Kind = "attribute", Detail = "attached" });
+                    }
                 }
 
                 // The intrinsics directives, under whatever prefix maps to them (conventionally x).
@@ -312,6 +338,15 @@ internal static partial class EditorServices
         return add?.GetParameters()[^1].ParameterType;
     }
 
+    /// <summary>Attached-property names declared by <paramref name="owner"/> via the
+    /// <c>public static readonly AttachedProperty&lt;T&gt; NameProperty</c> convention.</summary>
+    private static IEnumerable<string> AttachedPropertyNames(Type owner)
+        => owner.GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.Name.EndsWith("Property", StringComparison.Ordinal)
+                        && f.FieldType.IsGenericType
+                        && f.FieldType.GetGenericTypeDefinition() == typeof(AttachedProperty<>))
+            .Select(f => f.Name[..^"Property".Length]);
+
     private static XamlType? ResolveElement(string elementName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var colon = elementName.IndexOf(':');
@@ -344,7 +379,15 @@ internal static partial class EditorServices
         }
 
         var type = ResolveElement(owner, namespaces, provider);
-        return type?.TryGetMember(member)?.ValueType.UnderlyingSystemType;
+        if (type?.TryGetMember(member)?.ValueType.UnderlyingSystemType is { } fromMember)
+            return fromMember;
+
+        // Attached properties have no instance member; their value type is the
+        // AttachedProperty<T> field's generic argument.
+        var field = type?.ClrType.UnderlyingSystemType?.GetField(member + "Property", BindingFlags.Public | BindingFlags.Static);
+        return field?.FieldType is { IsGenericType: true } fieldType && fieldType.GetGenericTypeDefinition() == typeof(AttachedProperty<>)
+            ? fieldType.GetGenericArguments()[0]
+            : null;
     }
 
     // ── Markup-extension completion ────────────────────────────────────────────────────────────
