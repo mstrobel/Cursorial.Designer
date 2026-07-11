@@ -105,68 +105,14 @@ class CursorialPreviewEditor(
     // property, expanding into the full provenance — kind/priority/resource key and every
     // style frame contending for the value (winning and losing alike).
     private val propertiesHeader = JBLabel("No selection", SwingConstants.LEADING)
-    private val propertiesRoot = javax.swing.tree.DefaultMutableTreeNode()
-    private val propertiesTreeModel = javax.swing.tree.DefaultTreeModel(propertiesRoot)
-    private val propertiesTree = object : com.intellij.ui.treeStructure.Tree(propertiesTreeModel) {
-        override fun getToolTipText(event: java.awt.event.MouseEvent): String? {
-            val path = getPathForLocation(event.x, event.y) ?: return super.getToolTipText(event)
-            val node = path.lastPathComponent as? javax.swing.tree.DefaultMutableTreeNode
-            val data = node?.userObject as? PropertyNode ?: return super.getToolTipText(event)
-            val explanation = data.explanation ?: return super.getToolTipText(event)
-            return "<html><pre>${com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(explanation)}</pre></html>"
-        }
-    }.apply {
-        isRootVisible = false
-        showsRootHandles = true
-        // ColoredTreeCellRenderer over DefaultTreeCellRenderer: non-opaque and theme-correct (no
-        // stray label-background blocks on dark themes), with two-tone rows — muted name, regular
-        // value — in the InspectorDemo idiom. Color-like values get an inline swatch chip.
-        cellRenderer = object : com.intellij.ui.ColoredTreeCellRenderer() {
-            override fun customizeCellRenderer(
-                tree: javax.swing.JTree, value: Any?, selected: Boolean, expanded: Boolean,
-                leaf: Boolean, row: Int, hasFocus: Boolean,
-            ) {
-                val data = (value as? javax.swing.tree.DefaultMutableTreeNode)?.userObject as? PropertyNode ?: return
-                icon = data.swatch?.let { com.intellij.util.ui.ColorIcon(12, it) }
 
-                val text = data.toString()
-                val separator = text.indexOf(": ")
-                if (separator > 0) {
-                    append(text.substring(0, separator + 2), com.intellij.ui.SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                    append(text.substring(separator + 2), com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                } else {
-                    append(text, com.intellij.ui.SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                }
-            }
-        }
-        // Top-level property nodes stay collapsed by default; expanding one auto-expands its
-        // "interesting" interior (Binding, the winning frame) so one click reveals the meat.
-        addTreeExpansionListener(object : javax.swing.event.TreeExpansionListener {
-            override fun treeExpanded(event: javax.swing.event.TreeExpansionEvent) {
-                val node = event.path.lastPathComponent as? javax.swing.tree.DefaultMutableTreeNode ?: return
-                for (child in node.children()) {
-                    val childNode = child as javax.swing.tree.DefaultMutableTreeNode
-                    if ((childNode.userObject as? PropertyNode)?.autoExpand == true)
-                        expandPath(event.path.pathByAddingChild(childNode))
-                }
-            }
+    // Tree/grid hybrid: name column stable, value column mutable, updates diff in place so
+    // expansion survives refreshes and changed values flash (see PropertyInspectorTable).
+    private val inspector = PropertyInspectorTable()
 
-            override fun treeCollapsed(event: javax.swing.event.TreeExpansionEvent) {}
-        })
-    }
     private val propertiesPanel = JPanel(BorderLayout()).apply {
         add(propertiesHeader, BorderLayout.NORTH)
-        add(com.intellij.ui.components.JBScrollPane(propertiesTree), BorderLayout.CENTER)
-    }
-
-    /** A property node's display text, tooltip derivation, expansion hint, and optional color swatch. */
-    private class PropertyNode(
-        private val text: String,
-        val explanation: String? = null,
-        val autoExpand: Boolean = false,
-        val swatch: java.awt.Color? = null,
-    ) {
-        override fun toString(): String = text
+        add(inspector.component, BorderLayout.CENTER)
     }
 
     private val gridScrollPane = com.intellij.ui.components.JBScrollPane(gridPanel).apply {
@@ -433,8 +379,7 @@ class CursorialPreviewEditor(
             propertiesHeader.text = "No selection"
             lastPropertiesEvent = null
             lastSamplesEvent = null
-            propertiesRoot.removeAllChildren()
-            propertiesTreeModel.reload()
+            inspector.clear()
             return
         }
 
@@ -472,100 +417,8 @@ class CursorialPreviewEditor(
         rebuildInspectorTree()
     }
 
-    /** The inspector tree: a Layers drilldown for the clicked cell, then the property nodes. */
-    private fun rebuildInspectorTree() {
-        propertiesRoot.removeAllChildren()
-        lastSamplesEvent?.let { propertiesRoot.add(buildLayersNode(it)) }
-        lastPropertiesEvent?.let { for (item in it.items) propertiesRoot.add(buildPropertyNode(item)) }
-        propertiesTreeModel.reload()
-    }
-
-    private fun buildLayersNode(event: CellSamplesEvent): javax.swing.tree.DefaultMutableTreeNode {
-        fun node(text: String, swatch: java.awt.Color? = null) =
-            javax.swing.tree.DefaultMutableTreeNode(PropertyNode(text, swatch = swatch))
-
-        val layers = node("Layers: ${event.layers.size} at (${event.column}, ${event.row})")
-        for (i in event.layers.indices.reversed()) { // topmost first, like the InspectorDemo
-            val layer = event.layers[i]
-            val glyph = layer.grapheme?.let { "\"$it\"" } ?: "(null)"
-            val layerNode = node("[$i]: $glyph [${layer.kind ?: "—"}] ${layer.element ?: "?"}")
-
-            layer.element?.let { layerNode.add(node("Element: $it")) }
-            layerNode.add(node("SurfaceZ: ${layer.surfaceZ}"))
-
-            val parameters = node("Parameters")
-            layer.parameters.clip?.let { parameters.add(node("Clip: $it")) }
-            parameters.add(node("Mode: ${layer.parameters.mode ?: "(null)"}"))
-            parameters.add(node("OffsetColumn: ${layer.parameters.offsetColumn}"))
-            parameters.add(node("OffsetRow: ${layer.parameters.offsetRow}"))
-            parameters.add(node("Opacity: ${layer.parameters.opacity}"))
-            layerNode.add(parameters)
-
-            layer.style?.let { style ->
-                val styleNode = node("Style")
-                styleNode.add(node("Foreground: ${style.fg ?: "default"}", parseSwatch(style.fg)))
-                styleNode.add(node("Background: ${style.bg ?: "default"}", parseSwatch(style.bg)))
-                styleNode.add(node("Attributes: ${style.attrs?.joinToString(", ") ?: "None"}"))
-                style.underline?.let { styleNode.add(node("UnderlineStyle: $it")) }
-                style.underlineColor?.let { styleNode.add(node("UnderlineColor: $it", parseSwatch(it))) }
-                style.link?.let { styleNode.add(node("Hyperlink: $it")) }
-                layerNode.add(styleNode)
-            }
-
-            layers.add(layerNode)
-        }
-        return layers
-    }
-
-    private fun buildPropertyNode(item: dev.cursorial.designer.protocol.PropertyItem): javax.swing.tree.DefaultMutableTreeNode {
-        fun node(text: String, explanation: String? = null, autoExpand: Boolean = false) =
-            javax.swing.tree.DefaultMutableTreeNode(PropertyNode(text, explanation, autoExpand))
-
-        val name = item.declaringType?.let { "$it.${item.name}" } ?: item.name
-        val property = javax.swing.tree.DefaultMutableTreeNode(
-            PropertyNode("$name: ${item.value ?: ""}", item.explanation, swatch = parseSwatch(item.swatch)))
-
-        item.valueSource?.let { property.add(node("Kind: $it")) }
-        item.priority?.let { property.add(node("Priority: $it")) }
-        item.basePriority?.let { property.add(node("BasePriority: $it")) }
-        if (item.isAnimated == true) property.add(node("IsAnimated: true"))
-        item.resourceKey?.let { property.add(node("Resource Key: $it")) }
-
-        if (item.bindings != null) {
-            val bindingNode = node("Binding", autoExpand = true)
-            item.bindingTarget?.let { bindingNode.add(node("Target: $it")) }
-            item.bindings.forEachIndexed { i, binding ->
-                val expressionNode = node("Bindings[$i]: ${binding.path ?: "?"} — ${binding.status ?: "?"}", autoExpand = i == 0)
-                binding.lane?.let { expressionNode.add(node("Lane: $it")) }
-                binding.path?.let { expressionNode.add(node("Path: $it")) }
-                binding.status?.let { expressionNode.add(node("Status: $it")) }
-                binding.effectiveMode?.let { expressionNode.add(node("EffectiveMode: $it")) }
-                binding.resolvedSourceChain?.let { expressionNode.add(node("ResolvedSourceChain: $it")) }
-                binding.value?.let { expressionNode.add(node("LastProducedValue: $it")) }
-                expressionNode.add(node("LastFailure: ${binding.lastFailure ?: "None"}"))
-                bindingNode.add(expressionNode)
-            }
-            property.add(bindingNode)
-        }
-
-        item.frames?.forEachIndexed { i, frame ->
-            val winning = frame.status == "Winning"
-            val frameNode = javax.swing.tree.DefaultMutableTreeNode(PropertyNode(
-                "Frames[$i]: ${frame.selector ?: "?"} — ${frame.status ?: "?"}",
-                autoExpand = winning, swatch = parseSwatch(frame.swatch)))
-            frame.layer?.let { frameNode.add(node("Layer: $it")) }
-            frame.selector?.let { frameNode.add(node("Selector: $it")) }
-            frameNode.add(node("IsActive: ${frame.isActive}"))
-            frameNode.add(node("HasValue: ${frame.hasValue}"))
-            frame.value?.let { frameNode.add(node("LastProducedValue: $it")) }
-            frame.resourceKey?.let { frameNode.add(node("ResourceKey: $it")) }
-            frame.status?.let { frameNode.add(node("Status: $it")) }
-            frame.sortKey?.let { frameNode.add(node("SortKey: $it")) }
-            property.add(frameNode)
-        }
-
-        return property
-    }
+    /** The inspector content: a Layers drilldown for the clicked cell, then the property rows. */
+    private fun rebuildInspectorTree() = inspector.show(lastSamplesEvent, lastPropertiesEvent)
 
     /**
      * Moves the text editor's caret to the selected element's markup. A document-owned element
