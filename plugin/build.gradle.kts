@@ -50,6 +50,10 @@ intellijPlatform {
 tasks {
     runIde {
         jvmArgs("-Xmx2g")
+        // No mid-session hot swaps: buildPlugin refreshes the sandbox, and auto-reload silently
+        // replaced the running plugin with partially re-registered extensions — features died
+        // in ways that looked like real bugs. Updates apply on the next (re)launch only.
+        jvmArgs("-Didea.auto.reload.plugins=false")
     }
 
     prepareSandbox {
