@@ -22,17 +22,30 @@ class CursorialXamlGotoDeclarationHandler : GotoDeclarationHandler {
 
     private val logger = com.intellij.openapi.diagnostic.logger<CursorialXamlGotoDeclarationHandler>()
 
+    /** Ctrl-hover re-queries the same offset every few ms; one host round trip per (doc-stamp, offset) is plenty. */
+    private data class CacheKey(val document: com.intellij.openapi.editor.Document, val stamp: Long, val offset: Int)
+    @Volatile
+    private var lastQuery: Pair<CacheKey, dev.cursorial.designer.protocol.DefinitionEvent?>? = null
+
     override fun getGotoDeclarationTargets(sourceElement: PsiElement?, offset: Int, editor: Editor): Array<PsiElement>? {
-        logger.info("goto: element=${sourceElement?.javaClass?.simpleName} file=${sourceElement?.containingFile?.name} lang=${sourceElement?.containingFile?.language?.id}")
         val file = sourceElement?.containingFile ?: return null
         val virtualFile = file.virtualFile ?: return null
         if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return null
 
-        val text = editor.document.text
-        val (line, column) = positionOf(text, offset)
-        val result = CursorialLanguageService.getInstance(file.project)
-            .definition(text, line, column, virtualFile)
-        logger.info("goto result @$line:$column -> file=${result?.file} line=${result?.line} symbol=${result?.symbol}")
+        val key = CacheKey(editor.document, editor.document.modificationStamp, offset)
+        val cached = lastQuery
+        val result = if (cached?.first == key) {
+            cached.second
+        } else {
+            val text = editor.document.text
+            val (line, column) = positionOf(text, offset)
+            val fresh = CursorialLanguageService.getInstance(file.project)
+                .definition(text, line, column, virtualFile)
+            logger.info("goto @$line:$column -> ${fresh?.symbol} at ${fresh?.file}:${fresh?.line}")
+            lastQuery = key to fresh
+            fresh
+        }
+
         if (result == null) return null
 
         val path = result.file ?: return null
@@ -60,6 +73,15 @@ class CursorialXamlGotoDeclarationHandler : GotoDeclarationHandler {
         override fun navigate(requestFocus: Boolean) = descriptor.navigate(requestFocus)
         override fun canNavigate(): Boolean = descriptor.canNavigate()
         override fun canNavigateToSource(): Boolean = canNavigate()
+
+        // The ctrl-hover tooltip and target popups present this element; without an explicit
+        // presentation they show the SOURCE file (our parent) as the location, which reads
+        // like the link goes nowhere. Show the actual destination.
+        override fun getPresentation(): com.intellij.navigation.ItemPresentation = object : com.intellij.navigation.ItemPresentation {
+            override fun getPresentableText(): String = symbolName
+            override fun getLocationString(): String = "${descriptor.file.name}:${descriptor.line + 1}"
+            override fun getIcon(unused: Boolean): javax.swing.Icon? = null
+        }
     }
 
     private fun positionOf(text: String, offset: Int): Pair<Int, Int> {

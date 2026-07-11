@@ -24,6 +24,16 @@ class CursorialXamlDocumentationProvider : AbstractDocumentationProvider() {
     class DocTarget(private val psiFile: PsiFile, val offset: Int) : FakePsiElement() {
         override fun getParent(): PsiElement = psiFile
         override fun getContainingFile(): PsiFile = psiFile
+
+        // The documentation pipeline computes a target presentation BEFORE fetching content and
+        // throws "cannot be presented" (killing the popup) when the element has no name — the
+        // actual symbol name isn't known until the host answers, so present the document.
+        override fun getName(): String = psiFile.name
+        override fun getPresentation(): com.intellij.navigation.ItemPresentation = object : com.intellij.navigation.ItemPresentation {
+            override fun getPresentableText(): String = psiFile.name
+            override fun getLocationString(): String? = null
+            override fun getIcon(unused: Boolean): javax.swing.Icon? = null
+        }
     }
 
     override fun getCustomDocumentationElement(
