@@ -57,6 +57,10 @@ object CursorialXamlColors {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ENUM_VALUE", DefaultLanguageHighlighterColors.CONSTANT)
     val BOOL: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_BOOL", DefaultLanguageHighlighterColors.KEYWORD)
+    val STYLE_CLASS: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_STYLE_CLASS", DefaultLanguageHighlighterColors.INSTANCE_METHOD)
+    val PSEUDO_CLASS: TextAttributesKey =
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_PSEUDO_CLASS", DefaultLanguageHighlighterColors.METADATA)
 
     /** Host token kinds → keys. */
     val byKind: Map<String, TextAttributesKey> = mapOf(
@@ -77,6 +81,8 @@ object CursorialXamlColors {
         "number" to NUMBER,
         "enumValue" to ENUM_VALUE,
         "bool" to BOOL,
+        "styleClass" to STYLE_CLASS,
+        "pseudoClass" to PSEUDO_CLASS,
     )
 
     /** Kinds a native lexer already paints correctly; applied only on plain-text files. */
@@ -111,6 +117,8 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
         AttributesDescriptor("Number literal", CursorialXamlColors.NUMBER),
         AttributesDescriptor("Enum value", CursorialXamlColors.ENUM_VALUE),
         AttributesDescriptor("Boolean literal", CursorialXamlColors.BOOL),
+        AttributesDescriptor("Style class (selector)", CursorialXamlColors.STYLE_CLASS),
+        AttributesDescriptor("Pseudo-class (selector)", CursorialXamlColors.PSEUDO_CLASS),
     )
 
     override fun getColorDescriptors(): Array<ColorDescriptor> = ColorDescriptor.EMPTY_ARRAY
@@ -127,6 +135,7 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
                    <attribute>Background</attribute>="<brace>{</brace><extension>DynamicResource</extension> <brace>{</brace><extension>x:Static</extension> <element>ThemeKeys</element><dot>.</dot><staticMember>PanelBrush</staticMember><brace>}</brace><brace>}</brace>"
                    <attribute>Text</attribute>="<brace>{</brace><extension>Binding</extension> <parameter>Path</parameter>=<bindingPath>Title</bindingPath>, <parameter>ElementName</parameter>=<elementRef>Root</elementRef><brace>}</brace>"
                    <attribute>Tag</attribute>="<brace>{</brace><extension>StaticResource</extension> <resourceKey>PanelAccent</resourceKey><brace>}</brace>">
+            <<element>Style</element> <attribute>Selector</attribute>="<element>Button</element><styleClass>.accent</styleClass><pseudoClass>:pointerover</pseudoClass> <dot>></dot> <element>TextBlock</element>"/>
             <<element>TextBlock</element> <attribute>Text</attribute>=<string>"Hello"</string>/>
         </<element>DockPanel</element>>
     """.trimIndent()
@@ -149,5 +158,7 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
         "number" to CursorialXamlColors.NUMBER,
         "enumValue" to CursorialXamlColors.ENUM_VALUE,
         "bool" to CursorialXamlColors.BOOL,
+        "styleClass" to CursorialXamlColors.STYLE_CLASS,
+        "pseudoClass" to CursorialXamlColors.PSEUDO_CLASS,
     )
 }

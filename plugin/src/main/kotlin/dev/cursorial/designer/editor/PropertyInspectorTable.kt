@@ -14,14 +14,12 @@ import dev.cursorial.designer.protocol.CellSamplesEvent
 import dev.cursorial.designer.protocol.PropertiesEvent
 import dev.cursorial.designer.protocol.PropertyItem
 import java.awt.Color
-import java.awt.Component
 import javax.swing.JTable
 import javax.swing.JTree
 import javax.swing.Timer
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
 import javax.swing.tree.DefaultMutableTreeNode
-import javax.swing.tree.TreePath
 
 /**
  * The property inspector as a tree/grid hybrid: the tree column carries only the STABLE name

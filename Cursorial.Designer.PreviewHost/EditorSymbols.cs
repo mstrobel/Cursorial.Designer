@@ -255,6 +255,62 @@ internal static partial class EditorServices
             }
         }
 
+        // Style selector text (design doc §3.1): types, .classes, #names, :pseudo-classes,
+        // the >/,/^ combinators, and /template/. Resolvable type tokens color as elements and
+        // navigate; #name shares the element-reference role with x:Reference.
+        void ClassifySelectorValue(int contentStart, string content)
+        {
+            static bool IdentChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '-';
+            var i = 0;
+            while (i < content.Length)
+            {
+                var c = content[i];
+                if (c is ',' or '>' or '^')
+                {
+                    Add(contentStart + i, 1, "dot");
+                    i++;
+                    continue;
+                }
+
+                if (c == '/')
+                {
+                    var close = content.IndexOf('/', i + 1);
+                    var length = close > i ? close - i + 1 : 1;
+                    Add(contentStart + i, length, "extension"); // /template/
+                    i += length;
+                    continue;
+                }
+
+                if (c is '.' or '#' or ':')
+                {
+                    var nameStart = i + 1;
+                    var j = nameStart;
+                    while (j < content.Length && IdentChar(content[j]))
+                        j++;
+                    if (j > nameStart)
+                    {
+                        var kind = c switch { '.' => "styleClass", '#' => "elementRef", _ => "pseudoClass" };
+                        Add(contentStart + i, j - i, kind); // marker char included
+                    }
+
+                    i = Math.Max(j, i + 1);
+                    continue;
+                }
+
+                if (IdentChar(c))
+                {
+                    var start = i;
+                    while (i < content.Length && IdentChar(content[i]))
+                        i++;
+                    if (Resolves(content[start..i]))
+                        Add(contentStart + start, i - start, "element");
+                    continue;
+                }
+
+                i++;
+            }
+        }
+
         string? ParameterValueKind(string extensionName, string parameter, string value)
         {
             if (parameter == "ElementName")
@@ -299,7 +355,9 @@ internal static partial class EditorServices
                     AddName(attributes.Index + attrName.Index, attrName.Value);
 
                 var value = attribute.Groups[2];
-                if (value.Value.Contains('{'))
+                if (attrName.Value == "Selector")
+                    ClassifySelectorValue(attributes.Index + value.Index, value.Value);
+                else if (value.Value.Contains('{'))
                     ClassifyExtensionValue(attributes.Index + value.Index, value.Value);
                 else
                     ClassifyPlainValue(attributes.Index + value.Index, value.Value, elementName, attrName.Value);
@@ -502,6 +560,9 @@ internal static partial class EditorServices
     {
         static bool PathChar(char c) => char.IsLetterOrDigit(c) || c is '.' or ':' or '_';
 
+        if (attributeName == "Selector")
+            return SelectorSymbol(xaml, documentPath, value, offsetInValue, namespaces, provider);
+
         // On an extension name itself ({Binding, {x:Static, {theme:Elevate)? Prefer the REALIZED
         // type when one exists — {Binding} forwards to the Binding class and its docs; only
         // loader-level intrinsics with no CLR realization get the generic blurb.
@@ -612,6 +673,30 @@ internal static partial class EditorServices
             "x:Reference" => NamedElementSymbol(xaml, documentPath, token),
             "Binding" or "TemplateBinding" => BindingPathSymbol(xaml, token, namespaces, provider),
             _ => null,
+        };
+    }
+
+    /// <summary>The symbol under the caret in a style selector: a type, a #named element, a .class, or a :pseudo-class.</summary>
+    private static SymbolInfo? SelectorSymbol(string xaml, string? documentPath, string value, int offset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        static bool IdentChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '-';
+        var start = offset;
+        while (start > 0 && IdentChar(value[start - 1]))
+            start--;
+        var end = offset;
+        while (end < value.Length && IdentChar(value[end]))
+            end++;
+        if (end <= start)
+            return null;
+
+        var token = value[start..end];
+        var marker = start > 0 ? value[start - 1] : '\0';
+        return marker switch
+        {
+            '#' => NamedElementSymbol(xaml, documentPath, token),
+            '.' => new SymbolInfo($".{token}", $"style class .{token}", null, null, [], null),
+            ':' => new SymbolInfo($":{token}", $"pseudo-class :{token}", null, null, [], null),
+            _ => SymbolFromName(token, offset - start, namespaces, provider),
         };
     }
 

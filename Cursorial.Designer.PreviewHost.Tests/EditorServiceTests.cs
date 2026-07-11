@@ -438,6 +438,46 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Analyze_classifies_selector_paths()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button.accent:pointerover > TextBlock\"/>\n</StackPanel>";
+        _session.Execute(new AnalyzeCommand { Id = 91, Xaml = xaml, Classify = true });
+
+        var tokens = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent)).Tokens!;
+        Assert.Contains(tokens, t => t is { Kind: "element", Line: 2, Length: 6 });        // Button
+        Assert.Contains(tokens, t => t is { Kind: "styleClass", Length: 7 });              // .accent
+        Assert.Contains(tokens, t => t is { Kind: "pseudoClass", Length: 12 });            // :pointerover
+        Assert.Contains(tokens, t => t is { Kind: "element", Line: 2, Length: 9 });        // TextBlock
+        Assert.Contains(tokens, t => t is { Kind: "dot", Length: 1 });                     // '>' combinator
+    }
+
+    [Fact]
+    public void Hover_resolves_selector_type_tokens()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button.accent\"/>\n</StackPanel>";
+        var line2 = "    <Style Selector=\"Button.accent\"/>";
+        var column = line2.IndexOf("Button", StringComparison.Ordinal) + 3;
+        _session.Execute(new HoverCommand { Id = 92, Xaml = xaml, Line = 2, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.StartsWith("class ", hover.Signature);
+        Assert.Contains("Button", hover.Signature);
+    }
+
+    [Fact]
+    public void Definition_on_selector_name_reference_jumps_in_document()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button x:Name=\"ok\"/>\n    <Style Selector=\"Button#ok\"/>\n</StackPanel>";
+        var line3 = "    <Style Selector=\"Button#ok\"/>";
+        var column = line3.IndexOf("#ok", StringComparison.Ordinal) + 2;
+        _session.Execute(new DefinitionCommand { Id = 93, Xaml = xaml, Line = 3, Column = column, FilePath = "/tmp/View.xaml" });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal("/tmp/View.xaml", definition.File);
+        Assert.Equal(2, definition.Line);
+    }
+
+    [Fact]
     public void Hover_resolves_plain_enum_values()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Button Visibility=\"Hidden\"/>\n</StackPanel>";
