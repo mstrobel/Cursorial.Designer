@@ -20,6 +20,8 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(GetChildrenCommand), "getChildren")]
 [JsonDerivedType(typeof(GetPropertiesCommand), "getProperties")]
 [JsonDerivedType(typeof(SampleCellCommand), "sampleCell")]
+[JsonDerivedType(typeof(AnalyzeCommand), "analyze")]
+[JsonDerivedType(typeof(CompleteCommand), "complete")]
 [JsonDerivedType(typeof(SetThemeCommand), "setTheme")]
 [JsonDerivedType(typeof(ShutdownCommand), "shutdown")]
 public abstract class PreviewCommand
@@ -160,6 +162,36 @@ public sealed class SetThemeCommand : PreviewCommand
     public string? ThemeBase { get; init; }
 
     public string? ColorTier { get; init; }
+}
+
+/// <summary>
+/// Editor service: parse-only analysis of a (possibly mid-edit) document; answered by a
+/// <c>diagnostics</c> event. No instantiation, no preview session required — valid before
+/// <c>initialize</c>, which is how a language-service host differs from a preview host.
+/// </summary>
+public sealed class AnalyzeCommand : PreviewCommand
+{
+    public required string Xaml { get; init; }
+
+    public string? SourceUri { get; init; }
+
+    /// <summary>User assemblies to register for type resolution (same semantics as <c>loadXaml</c>).</summary>
+    public IReadOnlyList<string>? Assemblies { get; init; }
+}
+
+/// <summary>
+/// Editor service: code completion at a 1-based position in a (possibly mid-edit) document;
+/// answered by a <c>completions</c> event. Valid before <c>initialize</c>.
+/// </summary>
+public sealed class CompleteCommand : PreviewCommand
+{
+    public required string Xaml { get; init; }
+
+    public required int Line { get; init; }
+
+    public required int Column { get; init; }
+
+    public IReadOnlyList<string>? Assemblies { get; init; }
 }
 
 /// <summary>Orderly shutdown; the host exits after acknowledging with a final <c>log</c> event.</summary>

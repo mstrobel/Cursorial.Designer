@@ -121,6 +121,29 @@ data class GetChildrenCommand(
     override val type: String = "getChildren"
 }
 
+/** Editor service: parse-only diagnostics for a (possibly mid-edit) document. Valid before initialize. */
+data class AnalyzeCommand(
+    /** Correlation id echoed back as `replyTo` on the answering [DiagnosticsEvent]. */
+    val id: Int,
+    val xaml: String,
+    val sourceUri: String? = null,
+    val assemblies: List<String> = emptyList(),
+) : PreviewerCommand {
+    override val type: String = "analyze"
+}
+
+/** Editor service: completion at a 1-based position. Valid before initialize. */
+data class CompleteCommand(
+    /** Correlation id echoed back as `replyTo` on the [CompletionsEvent]. */
+    val id: Int,
+    val xaml: String,
+    val line: Int,
+    val column: Int,
+    val assemblies: List<String> = emptyList(),
+) : PreviewerCommand {
+    override val type: String = "complete"
+}
+
 data class SetThemeCommand(
     /** One of [ThemeBase]; null = leave unchanged. */
     val themeBase: String? = null,
@@ -287,6 +310,21 @@ data class CompositeParametersItem(
     val opacity: Int,
     val clip: String?,
     val mode: String?,
+)
+
+/** Answer to [CompleteCommand]. */
+data class CompletionsEvent(
+    val replyTo: Int?,
+    val items: List<CompletionItem>,
+) : PreviewerEvent
+
+data class CompletionItem(
+    /** The text to insert (may carry an xmlns prefix). */
+    val text: String,
+    /** "element", "attribute", or "value" — drives icon and insert handling. */
+    val kind: String?,
+    /** Optional detail (declaring CLR namespace, enum type, "directive"). */
+    val detail: String? = null,
 )
 
 data class PropertiesEvent(

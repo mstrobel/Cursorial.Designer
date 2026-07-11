@@ -102,6 +102,17 @@ internal sealed class PreviewSession : IDisposable
             case SampleCellCommand sample:
                 SampleCell(sample);
                 break;
+            case AnalyzeCommand analyze:
+                Analyze(analyze);
+                break;
+            case CompleteCommand complete:
+                RegisterAssemblies(complete.Assemblies, complete.Id);
+                _emit(new CompletionsEvent
+                {
+                    ReplyTo = complete.Id,
+                    Items = EditorServices.Complete(complete.Xaml, complete.Line, complete.Column),
+                });
+                break;
             case SetThemeCommand theme:
                 ApplyTheme(Host(command).Application, theme.ThemeBase, theme.ColorTier);
                 SettleAndEmitFrame();
@@ -201,26 +212,12 @@ internal sealed class PreviewSession : IDisposable
     private void LoadXaml(LoadXamlCommand command)
     {
         var host = Host(command);
-        RegisterAssemblies(command);
+        RegisterAssemblies(command.Assemblies, command.Id);
 
         var sourceUri = command.SourceUri is { } s && Uri.TryCreate(s, UriKind.Absolute, out var parsed) ? parsed : null;
         var document = _loader.Parse(command.Xaml, sourceUri);
 
-        var diagnostics = document.Diagnostics
-            .Select(d => new DiagnosticInfo
-            {
-                Code = d.Code,
-                Message = d.Message,
-                Line = d.Line,
-                Column = d.Column,
-                Severity = d.Severity switch
-                {
-                    XamlDiagnosticSeverity.Error => "error",
-                    XamlDiagnosticSeverity.Warning => "warning",
-                    _ => "info",
-                },
-            })
-            .ToList();
+        var diagnostics = ToDiagnosticInfos(document.Diagnostics);
 
         if (diagnostics.Any(d => d.Severity == "error"))
         {
@@ -355,12 +352,12 @@ internal sealed class PreviewSession : IDisposable
         }
     }
 
-    private void RegisterAssemblies(LoadXamlCommand command)
+    private void RegisterAssemblies(IReadOnlyList<string>? assemblies, long? replyTo)
     {
-        if (command.Assemblies is null)
+        if (assemblies is null)
             return;
 
-        foreach (var path in command.Assemblies)
+        foreach (var path in assemblies)
         {
             if (!_registeredAssemblies.Add(path))
                 continue;
@@ -372,10 +369,39 @@ internal sealed class PreviewSession : IDisposable
             catch (Exception ex)
             {
                 _registeredAssemblies.Remove(path);
-                _emit(new ErrorEvent { ReplyTo = command.Id, Message = $"Failed to load assembly '{path}'.", Detail = ex.Message });
+                _emit(new ErrorEvent { ReplyTo = replyTo, Message = $"Failed to load assembly '{path}'.", Detail = ex.Message });
             }
         }
     }
+
+    /// <summary>
+    /// Editor service: parse-only diagnostics for a (possibly mid-edit) document. No preview
+    /// session required — a language-service host never initializes one.
+    /// </summary>
+    private void Analyze(AnalyzeCommand command)
+    {
+        RegisterAssemblies(command.Assemblies, command.Id);
+        var uri = command.SourceUri is { } s && Uri.TryCreate(s, UriKind.Absolute, out var parsed) ? parsed : null;
+        var document = _loader.Parse(command.Xaml, uri);
+        _emit(new DiagnosticsEvent { ReplyTo = command.Id, SourceUri = command.SourceUri, Items = ToDiagnosticInfos(document.Diagnostics) });
+    }
+
+    private static List<DiagnosticInfo> ToDiagnosticInfos(IReadOnlyList<XamlDiagnostic> diagnostics)
+        => diagnostics
+            .Select(d => new DiagnosticInfo
+            {
+                Code = d.Code,
+                Message = d.Message,
+                Line = d.Line,
+                Column = d.Column,
+                Severity = d.Severity switch
+                {
+                    XamlDiagnosticSeverity.Error => "error",
+                    XamlDiagnosticSeverity.Warning => "warning",
+                    _ => "info",
+                },
+            })
+            .ToList();
 
     // ───────────────────────────── input ─────────────────────────────
 

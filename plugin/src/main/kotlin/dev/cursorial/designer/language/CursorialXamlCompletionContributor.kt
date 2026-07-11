@@ -1,0 +1,71 @@
+package dev.cursorial.designer.language
+
+import com.intellij.codeInsight.completion.CompletionContributor
+import com.intellij.codeInsight.completion.CompletionParameters
+import com.intellij.codeInsight.completion.CompletionProvider
+import com.intellij.codeInsight.completion.CompletionResultSet
+import com.intellij.codeInsight.completion.CompletionType
+import com.intellij.codeInsight.completion.InsertHandler
+import com.intellij.codeInsight.lookup.LookupElement
+import com.intellij.codeInsight.lookup.LookupElementBuilder
+import com.intellij.icons.AllIcons
+import com.intellij.patterns.PlatformPatterns
+import com.intellij.util.ProcessingContext
+import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
+
+/**
+ * Code completion for Cursorial XAML: element names, attribute names (members + x: directives),
+ * and enum/bool attribute values, answered by the language service (the same parser + metadata
+ * providers production uses, with the project's own assemblies registered).
+ */
+class CursorialXamlCompletionContributor : CompletionContributor() {
+
+    init {
+        extend(CompletionType.BASIC, PlatformPatterns.psiElement(), object : CompletionProvider<CompletionParameters>() {
+            override fun addCompletions(
+                parameters: CompletionParameters,
+                context: ProcessingContext,
+                result: CompletionResultSet,
+            ) {
+                val file = parameters.originalFile.virtualFile ?: return
+                if (!CursorialPreviewEditorProvider.isCursorialXaml(file)) return
+
+                val document = parameters.editor.document
+                val offset = parameters.offset
+                val line = document.getLineNumber(offset)
+                val column = offset - document.getLineStartOffset(line) + 1
+
+                val completions = CursorialLanguageService.getInstance(parameters.originalFile.project)
+                    .complete(document.text, line + 1, column, file) ?: return
+
+                for (item in completions.items)
+                    result.addElement(lookup(item.text, item.kind, item.detail))
+            }
+        })
+    }
+
+    private fun lookup(text: String, kind: String?, detail: String?): LookupElement {
+        var builder = LookupElementBuilder.create(text)
+        detail?.let { builder = builder.withTypeText(it, true) }
+        builder = when (kind) {
+            "element" -> builder.withIcon(AllIcons.Nodes.Class)
+            "attribute" -> builder.withIcon(AllIcons.Nodes.Property).withInsertHandler(AttributeInsertHandler)
+            "value" -> builder.withIcon(AllIcons.Nodes.Enum)
+            else -> builder
+        }
+        return builder
+    }
+
+    /** Completing an attribute inserts `="…"` and parks the caret between the quotes. */
+    private object AttributeInsertHandler : InsertHandler<LookupElement> {
+        override fun handleInsert(context: com.intellij.codeInsight.completion.InsertionContext, item: LookupElement) {
+            val editor = context.editor
+            val offset = context.tailOffset
+            val alreadyHasValue = offset < editor.document.textLength && editor.document.charsSequence[offset] == '='
+            if (!alreadyHasValue) {
+                editor.document.insertString(offset, "=\"\"")
+                editor.caretModel.moveToOffset(offset + 2)
+            }
+        }
+    }
+}

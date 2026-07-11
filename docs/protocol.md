@@ -35,6 +35,12 @@ the session survives errors and keeps rendering the previous content.
 {"type":"getChildren","id":9,"elementId":3}   // descend below a hit-test anchor / explore siblings
 {"type":"getProperties","id":8,"elementId":3}
 {"type":"sampleCell","id":10,"column":5,"row":2}  // per-cell composition inspector
+{"type":"analyze","id":11,"xaml":"<…>","sourceUri":"file:///…",
+ "assemblies":["…"]}                       // editor service: parse-only diagnostics; valid
+                                           // BEFORE initialize (language-service hosts never
+                                           // initialize a preview session)
+{"type":"complete","id":12,"xaml":"<…>","line":2,"column":10,
+ "assemblies":["…"]}                       // editor service: completion at a 1-based position
 {"type":"setTheme","themeBase":"light","colorTier":"truecolor"}
 {"type":"shutdown"}
 ```
@@ -73,6 +79,11 @@ exits on Escape — WPF-style.
 
 {"type":"properties","replyTo":8,"elementId":3,"items":[
   {"name":"Text","value":"Hello","valueSource":"Local","explanation":"…"}]}
+
+{"type":"completions","replyTo":12,"items":[
+  {"text":"Button","kind":"element","detail":"Cursorial.UI.Controls"},
+  {"text":"Content","kind":"attribute"},
+  {"text":"Visible","kind":"value","detail":"Visibility"}]}
 
 {"type":"error","replyTo":null,"message":"…","detail":"…"}
 {"type":"log","level":"debug|info|warn|error","message":"…"}

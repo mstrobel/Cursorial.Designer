@@ -25,6 +25,7 @@ object LineProtocolCodec {
         "hitTestResult" to HitTestResultEvent::class.java,
         "children" to ChildrenEvent::class.java,
         "cellSamples" to CellSamplesEvent::class.java,
+        "completions" to CompletionsEvent::class.java,
         "properties" to PropertiesEvent::class.java,
         "error" to ErrorEvent::class.java,
         "log" to LogEvent::class.java,

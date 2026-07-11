@@ -15,6 +15,13 @@
     <extensions defaultExtensionNs="com.intellij">
         <fileEditorProvider implementation="dev.cursorial.designer.editor.CursorialPreviewEditorProvider" />
 
+        <!-- Editor services for Cursorial XAML (gated per-file to documents carrying the
+             cursorial.dev xmlns; every other .xaml file is untouched). -->
+        <externalAnnotator language="XML"
+                           implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
+        <completion.contributor language="XML"
+                                implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
+
         <!--
             dev.cursorial.designer.settings.CursorialDesignerSettings is a light service
             (@Service annotation) and needs no registration here.

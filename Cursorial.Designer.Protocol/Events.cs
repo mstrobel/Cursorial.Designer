@@ -15,6 +15,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(ChildrenEvent), "children")]
 [JsonDerivedType(typeof(PropertiesEvent), "properties")]
 [JsonDerivedType(typeof(CellSamplesEvent), "cellSamples")]
+[JsonDerivedType(typeof(CompletionsEvent), "completions")]
 [JsonDerivedType(typeof(ErrorEvent), "error")]
 [JsonDerivedType(typeof(LogEvent), "log")]
 public abstract class PreviewEvent
@@ -135,6 +136,25 @@ public sealed class CompositeParametersInfo
 
     /// <summary>The blend mode name; absent for the default (source-over).</summary>
     public string? Mode { get; init; }
+}
+
+/// <summary>Answer to <c>complete</c>: completion items for the requested position.</summary>
+public sealed class CompletionsEvent : PreviewEvent
+{
+    public required IReadOnlyList<CompletionItemInfo> Items { get; init; }
+}
+
+/// <summary>One completion item.</summary>
+public sealed class CompletionItemInfo
+{
+    /// <summary>The text to insert (may carry an xmlns prefix, e.g. <c>bars:Ribbon</c>).</summary>
+    public required string Text { get; init; }
+
+    /// <summary><c>element</c>, <c>attribute</c>, or <c>value</c> — drives the IDE's icon and insert handling.</summary>
+    public required string Kind { get; init; }
+
+    /// <summary>Optional detail shown alongside (e.g. the declaring CLR namespace, or the enum type).</summary>
+    public string? Detail { get; init; }
 }
 
 /// <summary>A command failed. The session stays alive; the previous content keeps rendering.</summary>

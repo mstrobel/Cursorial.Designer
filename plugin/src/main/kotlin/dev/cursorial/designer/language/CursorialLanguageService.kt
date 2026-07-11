@@ -1,0 +1,122 @@
+package dev.cursorial.designer.language
+
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.VirtualFile
+import dev.cursorial.designer.previewer.PreviewHostProcess
+import dev.cursorial.designer.previewer.UserAssemblyLocator
+import dev.cursorial.designer.protocol.AnalyzeCommand
+import dev.cursorial.designer.protocol.CompleteCommand
+import dev.cursorial.designer.protocol.CompletionsEvent
+import dev.cursorial.designer.protocol.DiagnosticsEvent
+import dev.cursorial.designer.protocol.ErrorEvent
+import dev.cursorial.designer.protocol.PreviewerEvent
+import dev.cursorial.designer.settings.CursorialDesignerSettings
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * The project's language-service backend: one preview-host process that never initializes a
+ * preview session — it exists solely for the editor-service commands (`analyze`, `complete`),
+ * which are valid before `initialize`. Shared by the annotator and the completion contributor;
+ * independent of any open preview.
+ */
+@Service(Service.Level.PROJECT)
+class CursorialLanguageService(private val project: Project) : Disposable {
+
+    companion object {
+        private val logger = logger<CursorialLanguageService>()
+
+        fun getInstance(project: Project): CursorialLanguageService = project.service()
+    }
+
+    private val requestIds = AtomicInteger()
+    private val pending = ConcurrentHashMap<Int, CompletableFuture<PreviewerEvent>>()
+
+    @Volatile
+    private var process: PreviewHostProcess? = null
+
+    private val listener = object : PreviewHostProcess.Listener {
+        override fun onEvent(event: PreviewerEvent) {
+            val replyTo = when (event) {
+                is DiagnosticsEvent -> event.replyTo
+                is CompletionsEvent -> event.replyTo
+                is ErrorEvent -> event.replyTo
+                else -> null
+            } ?: return
+            pending.remove(replyTo)?.complete(event)
+        }
+
+        override fun onTerminated(exitCode: Int, willRestart: Boolean) {
+            // Fail everything in flight; callers degrade gracefully (no squiggles, no items).
+            val inFlight = pending.values.toList()
+            pending.clear()
+            for (future in inFlight) future.completeExceptionally(TimeoutException("language service terminated"))
+        }
+    }
+
+    /** Live diagnostics for a document snapshot; null when the service is unavailable or slow. */
+    fun analyze(xaml: String, sourceUri: String?, contextFile: VirtualFile?, timeoutMs: Long = 5_000): DiagnosticsEvent? {
+        val id = requestIds.incrementAndGet()
+        return request(id, timeoutMs) {
+            AnalyzeCommand(id, xaml, sourceUri, assembliesFor(contextFile))
+        } as? DiagnosticsEvent
+    }
+
+    /** Completion items at a 1-based (line, column); null when unavailable or slow. */
+    fun complete(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 2_000): CompletionsEvent? {
+        val id = requestIds.incrementAndGet()
+        return request(id, timeoutMs) {
+            CompleteCommand(id, xaml, line, column, assembliesFor(contextFile))
+        } as? CompletionsEvent
+    }
+
+    private fun assembliesFor(file: VirtualFile?): List<String> =
+        file?.let { UserAssemblyLocator.locate(it).assemblies } ?: emptyList()
+
+    private fun request(id: Int, timeoutMs: Long, command: () -> dev.cursorial.designer.protocol.PreviewerCommand): PreviewerEvent? {
+        val host = ensureProcess() ?: return null
+        val future = CompletableFuture<PreviewerEvent>()
+        pending[id] = future
+        if (!host.sendCommand(command())) {
+            pending.remove(id)
+            return null
+        }
+        return try {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (_: Exception) {
+            pending.remove(id)
+            null
+        }
+    }
+
+    @Synchronized
+    private fun ensureProcess(): PreviewHostProcess? {
+        process?.takeIf { it.isRunning }?.let { return it }
+
+        val hostDll = CursorialDesignerSettings.getInstance(project).previewHostDllPath()
+        if (hostDll == null) {
+            logger.info("Cursorial language service unavailable: PreviewHost dll not found")
+            return null
+        }
+
+        val fresh = process ?: PreviewHostProcess(hostDll).also {
+            it.addListener(listener)
+            Disposer.register(this, it)
+            process = it
+        }
+        fresh.start()
+        return fresh
+    }
+
+    override fun dispose() {
+        // The process is disposed through Disposer (registered in ensureProcess).
+    }
+}
