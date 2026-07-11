@@ -27,14 +27,24 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
         private const val CURSORIAL_XMLNS_MARKER = "cursorial.dev"
         private const val SNIFF_LIMIT_BYTES = 8192
 
-        // TODO: cache the sniff result per file modification stamp; accept() runs often.
+        private val SNIFF_KEY =
+            com.intellij.openapi.util.Key.create<Pair<Long, Boolean>>("cursorial.designer.xmlns.sniff")
+
+        /**
+         * Whether the file is a Cursorial XAML document (.xaml/.cxaml carrying the cursorial.dev
+         * xmlns). Cached per modification stamp: the file-type overrider calls this on hot paths.
+         */
         fun isCursorialXaml(file: VirtualFile): Boolean {
             if (file.isDirectory || !file.isValid) return false
-            // .cxaml: an extension Rider's own XAML file type does NOT claim, so the platform's
-            // frontend pipelines (daemon passes, navigation, docs) all run normally for it.
             val extension = file.extension
             if (!"xaml".equals(extension, ignoreCase = true) && !"cxaml".equals(extension, ignoreCase = true)) return false
-            return try {
+
+            val stamp = file.modificationStamp
+            file.getUserData(SNIFF_KEY)?.let { (cachedStamp, result) ->
+                if (cachedStamp == stamp) return result
+            }
+
+            val result = try {
                 file.inputStream.use { stream ->
                     val head = stream.readNBytes(SNIFF_LIMIT_BYTES)
                     String(head, StandardCharsets.UTF_8).contains(CURSORIAL_XMLNS_MARKER)
@@ -42,6 +52,9 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
             } catch (_: IOException) {
                 false
             }
+
+            file.putUserData(SNIFF_KEY, stamp to result)
+            return result
         }
     }
 

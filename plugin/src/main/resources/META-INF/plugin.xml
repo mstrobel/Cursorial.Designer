@@ -15,29 +15,28 @@
     <extensions defaultExtensionNs="com.intellij">
         <fileEditorProvider implementation="dev.cursorial.designer.editor.CursorialPreviewEditorProvider" />
 
-        <!-- Editor services for Cursorial XAML (gated per-file to documents carrying the
-             cursorial.dev xmlns; every other .xaml file is untouched). -->
-        <!-- Language ids matter, and "any" is NOT universally honored: completion.contributor
-             supports it, but LanguageExtension-backed EPs (externalAnnotator,
-             lang.documentationProvider) silently never fire for it — register CONCRETE ids.
-             "Xaml" is Rider's own XAML language (what owns .xaml on the frontend); "TEXT" is
-             plain text (.cxaml or unassociated files). -->
-        <externalAnnotator language="Xaml"
+        <!-- Cursorial XAML is its own XML-derived language, and marker-matching .xaml files are
+             CLAIMED from Rider's XAML file type per file (fileTypeOverrider). Rider routes
+             editor actions for its own Xaml language through the R# backend before platform EPs
+             run — docs/goto could never fire on .xaml while Rider owned the files. Deriving
+             from XML buys the native lexer/PSI: syntax coloring, tag matching, folding,
+             structure view. Every non-Cursorial .xaml (WPF, Avalonia, …) is untouched. -->
+        <fileType name="Cursorial XAML" language="CursorialXaml" extensions="cxaml" fieldName="INSTANCE"
+                  implementationClass="dev.cursorial.designer.language.CursorialXamlFileType" />
+        <fileTypeOverrider implementation="dev.cursorial.designer.language.CursorialXamlFileTypeOverrider" />
+
+        <externalAnnotator language="CursorialXaml"
                            implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
-        <externalAnnotator language="TEXT"
-                           implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
-        <completion.contributor language="any"
+        <completion.contributor language="CursorialXaml"
                                 implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
-        <!-- Tag auto-closing: Rider's XAML file type exposes no XML PSI on the frontend, so the
-             platform's XML typed handlers never fire; this one fills the gap. -->
+        <!-- Tag auto-closing for files without XML PSI (none, since the overrider); the handler
+             stands down when the platform's XML typed handlers already serve the file. -->
         <typedHandler implementation="dev.cursorial.designer.language.CursorialXamlTypedHandler" />
         <!-- Quick documentation + go-to-declaration, answered by the language service (XML-doc
              summaries from the assemblies' doc files; source locations from portable PDBs). -->
-        <lang.documentationProvider language="Xaml" order="first"
+        <lang.documentationProvider language="CursorialXaml"
                                     implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
-        <lang.documentationProvider language="TEXT"
-                                    implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
-        <gotoDeclarationHandler order="first" implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
+        <gotoDeclarationHandler implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
         <!-- Ctrl+W steps through markup-extension structure ({x:Static Type.Member} nesting). -->
         <extendWordSelectionHandler implementation="dev.cursorial.designer.language.CursorialXamlExtendSelectionHandler" />
 

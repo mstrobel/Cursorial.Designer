@@ -22,6 +22,10 @@ class CursorialXamlTypedHandler : TypedHandlerDelegate() {
         if (c != '>' && c != '/') return Result.CONTINUE
         val virtualFile = file.virtualFile ?: return Result.CONTINUE
         if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return Result.CONTINUE
+        // XML-derived PSI (the owned file type) already gets the platform's XML auto-closing;
+        // inserting a second closing tag would double it. This handler serves only files with
+        // no XML PSI (plain text).
+        if (file.language is com.intellij.lang.xml.XMLLanguage) return Result.CONTINUE
 
         return when (c) {
             '>' -> autoCloseTag(editor)
