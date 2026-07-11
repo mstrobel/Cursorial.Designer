@@ -131,6 +131,23 @@ internal static partial class EditorServices
                     Add(contentStart, content.Length, "number");
                     return;
                 }
+
+                // Converter oddballs with a known literal grammar: GridLength is Auto (a
+                // keyword), fixed cells, or star with an optional weight.
+                if (type.Name == "GridLength")
+                {
+                    if (string.Equals(content, "Auto", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Add(contentStart, content.Length, "enumValue");
+                        return;
+                    }
+
+                    if (Regex.IsMatch(content, @"^(?:\d+(?:\.\d+)?)?\*$|^\d+$"))
+                    {
+                        Add(contentStart, content.Length, "number");
+                        return;
+                    }
+                }
             }
 
             Add(contentStart - 1, content.Length + 2, "string"); // quotes included

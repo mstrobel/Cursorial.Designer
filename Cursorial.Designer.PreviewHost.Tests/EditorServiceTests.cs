@@ -654,6 +654,18 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Analyze_classifies_grid_lengths()
+    {
+        var xaml = $"<Grid {Xmlns}>\n    <Grid.ColumnDefinitions>\n        <ColumnDefinition Width=\"Auto\"/>\n        <ColumnDefinition Width=\"2*\"/>\n        <ColumnDefinition Width=\"12\"/>\n    </Grid.ColumnDefinitions>\n</Grid>";
+        _session.Execute(new AnalyzeCommand { Id = 111, Xaml = xaml, Classify = true });
+
+        var tokens = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent)).Tokens!;
+        Assert.Contains(tokens, t => t is { Kind: "enumValue", Line: 3, Length: 4 }); // Auto
+        Assert.Contains(tokens, t => t is { Kind: "number", Line: 4, Length: 2 });    // 2*
+        Assert.Contains(tokens, t => t is { Kind: "number", Line: 5, Length: 2 });    // 12
+    }
+
+    [Fact]
     public void Hover_resolves_relative_source_modes()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"{{Binding Path=X, RelativeSource={{RelativeSource Self}}}}\"/>\n</StackPanel>";
