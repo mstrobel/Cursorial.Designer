@@ -24,9 +24,18 @@
         <fileType name="Cursorial XAML" language="CursorialXaml" extensions="cxaml" fieldName="INSTANCE"
                   implementationClass="dev.cursorial.designer.language.CursorialXamlFileType" />
         <fileTypeOverrider implementation="dev.cursorial.designer.language.CursorialXamlFileTypeOverrider" />
+        <lang.parserDefinition language="CursorialXaml"
+                               implementationClass="dev.cursorial.designer.language.CursorialXamlParserDefinition" />
+        <standardResourceProvider implementation="dev.cursorial.designer.language.CursorialXamlResourceProvider" />
+        <xml.xmlSuppressionProvider implementation="dev.cursorial.designer.language.CursorialXamlSuppressionProvider" />
 
         <externalAnnotator language="CursorialXaml"
                            implementationClass="dev.cursorial.designer.language.CursorialXamlExternalAnnotator" />
+        <!-- Registered for XML too: PSI LEAVES carry the XML token language (dialect files share
+             XML's token types), and caret-language consumers (completion, docs) look up by the
+             leaf. Both implementations gate per file, so foreign XML documents are untouched. -->
+        <completion.contributor language="XML"
+                                implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
         <completion.contributor language="CursorialXaml"
                                 implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
         <!-- Tag auto-closing for files without XML PSI (none, since the overrider); the handler
@@ -35,6 +44,8 @@
         <!-- Quick documentation + go-to-declaration, answered by the language service (XML-doc
              summaries from the assemblies' doc files; source locations from portable PDBs). -->
         <lang.documentationProvider language="CursorialXaml"
+                                    implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
+        <lang.documentationProvider language="XML"
                                     implementationClass="dev.cursorial.designer.language.CursorialXamlDocumentationProvider" />
         <gotoDeclarationHandler implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
         <!-- Ctrl+W steps through markup-extension structure ({x:Static Type.Member} nesting). -->

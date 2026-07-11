@@ -495,13 +495,42 @@ internal static partial class EditorServices
                     return null;
 
                 var bestFile = hits.GroupBy(h => h.File, StringComparer.Ordinal).MaxBy(g => g.Count())!.Key;
-                return hits.Where(h => h.File == bestFile).MinBy(h => h.Line);
+                var earliest = hits.Where(h => h.File == bestFile).MinBy(h => h.Line);
+
+                // Types have no sequence points of their own, so the earliest member body is the
+                // best the PDB offers — but landing on a member reads as a mis-jump. The file is
+                // local (callers verify); find the declaration line itself.
+                return TypeDeclarationLine(bestFile, type.Name) ?? earliest;
             }
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>The 1-based position of <c>class/struct/… {name}</c> in <paramref name="path"/>, when present.</summary>
+    private static (string File, int Line, int Column)? TypeDeclarationLine(string path, string name)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return null;
+
+            var declaration = new Regex($@"\b(?:class|struct|interface|enum|record)\s+{Regex.Escape(name)}\b");
+            var lineNumber = 0;
+            foreach (var line in File.ReadLines(path))
+            {
+                lineNumber++;
+                if (declaration.Match(line) is { Success: true } match)
+                    return (path, lineNumber, match.Value.LastIndexOf(name, StringComparison.Ordinal) + match.Index + 1);
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     private static (string File, int Line, int Column)? FirstSequencePoint(MetadataReader pdb, MethodBase method)

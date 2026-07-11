@@ -431,8 +431,14 @@ public class EditorServiceTests : IDisposable
         Assert.Equal("Button", definition.Symbol);
         Assert.NotNull(definition.File);
         Assert.EndsWith("Button.cs", definition.File);
-        Assert.True(definition.Line > 0);
         Assert.True(File.Exists(definition.File)); // built from the sibling checkout: PDB paths are real
+
+        // Types have no sequence points; the host lands on the DECLARATION line, not the first
+        // member body the PDB happens to mention.
+        var declarationLine = File.ReadLines(definition.File!)
+            .Select((text, index) => (text, line: index + 1))
+            .First(l => l.text.Contains("class Button")).line;
+        Assert.Equal(declarationLine, definition.Line);
     }
 
     [Fact]
