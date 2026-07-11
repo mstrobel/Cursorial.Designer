@@ -525,8 +525,16 @@ internal static partial class EditorServices
     /// <summary>The CLR type an attribute's value converts to, or null when unresolvable.</summary>
     internal static Type? AttributeValueType(string elementName, string attribute, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
-        if (attribute.Contains(':'))
+        var colon = attribute.IndexOf(':');
+        if (colon >= 0)
+        {
+            // d:DataContext names a type — the design-namespace attribute with a value grammar.
+            if (colon > 0 && attribute[(colon + 1)..] == "DataContext"
+                && namespaces.TryGetValue(attribute[..colon], out var uri) && DesignUris.Contains(uri))
+                return typeof(Type);
+
             return null; // directives (x:) and prefixed attached owners: no value completion yet
+        }
 
         string owner;
         string member;

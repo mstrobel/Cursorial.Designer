@@ -754,6 +754,27 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_types_for_design_data_context()
+    {
+        var xaml = $"<StackPanel {Xmlns} xmlns:d=\"https://cursorial.dev/xaml/design\">\n    <StackPanel d:DataContext=\"\n</StackPanel>";
+        var line2 = "    <StackPanel d:DataContext=\"";
+        _session.Execute(new CompleteCommand { Id = 120, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Button", Kind: "element" });
+    }
+
+    [Fact]
+    public void Analyze_classifies_design_data_context_types()
+    {
+        var xaml = $"<StackPanel {Xmlns} xmlns:d=\"https://cursorial.dev/xaml/design\">\n    <StackPanel d:DataContext=\"Button\"/>\n</StackPanel>";
+        _session.Execute(new AnalyzeCommand { Id = 121, Xaml = xaml, Classify = true });
+
+        var tokens = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent)).Tokens!;
+        Assert.Contains(tokens, t => t is { Kind: "element", Line: 2, Length: 6 }); // the type reference
+    }
+
+    [Fact]
     public void Complete_offers_grid_length_keywords()
     {
         var xaml = $"<ColumnDefinition {Xmlns} Width=\"\n";
@@ -778,6 +799,33 @@ public class EditorServiceTests : IDisposable
         Assert.Equal("/tmp/View.xaml", definition.File);
         Assert.Equal(1, definition.Line); // the xmlns:bars declaration in the root tag
         Assert.Contains("xmlns:bars", definition.Symbol);
+    }
+
+    [Fact]
+    public void Definition_on_xmlns_prefix_in_type_value_jumps_to_declaration()
+    {
+        var ns = "clr-namespace:Cursorial.UI.Bars;assembly=Cursorial.UI.Bars";
+        var xaml = $"<StackPanel {Xmlns} xmlns:bars=\"{ns}\">\n    <DataTemplate DataType=\"bars:Toolbar\"/>\n</StackPanel>";
+        var line2 = "    <DataTemplate DataType=\"bars:Toolbar\"/>";
+        var column = line2.IndexOf("bars:Toolbar", StringComparison.Ordinal) + 2; // caret inside the prefix
+        _session.Execute(new DefinitionCommand { Id = 118, Xaml = xaml, Line = 2, Column = column, FilePath = "/tmp/View.xaml" });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal("/tmp/View.xaml", definition.File);
+        Assert.Equal(1, definition.Line); // the xmlns:bars declaration in the root tag
+        Assert.Contains("xmlns:bars", definition.Symbol);
+    }
+
+    [Fact]
+    public void Hover_resolves_type_name_in_x_type_extension()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <ContentControl Content=\"{{x:Type Button}}\"/>\n</StackPanel>";
+        var line2 = "    <ContentControl Content=\"{x:Type Button}\"/>";
+        var column = line2.IndexOf("Button", StringComparison.Ordinal) + 3;
+        _session.Execute(new HoverCommand { Id = 119, Xaml = xaml, Line = 2, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("Cursorial.UI.Controls.Button", hover.Signature);
     }
 
     [Fact]

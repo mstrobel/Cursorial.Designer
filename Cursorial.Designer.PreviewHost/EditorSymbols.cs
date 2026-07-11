@@ -663,10 +663,15 @@ internal static partial class EditorServices
 
         if (open < 0)
         {
-            // A plain value: enum members resolve to their fields (docs + definition).
+            // A plain value: enum members resolve to their fields (docs + definition); Type-typed
+            // values (DataType=) resolve like element names, xmlns prefix included.
             var plainType = AttributeValueType(elementName, attributeName, namespaces, provider);
-            var plainEnum = plainType is null ? null : Nullable.GetUnderlyingType(plainType) ?? plainType;
-            return plainEnum is { IsEnum: true } && token.Length > 0 ? EnumMemberSymbol(plainEnum, token) : null;
+            var plainUnderlying = plainType is null ? null : Nullable.GetUnderlyingType(plainType) ?? plainType;
+            if (token.Length == 0)
+                return null;
+            if (plainUnderlying == typeof(Type))
+                return TypeNameOrPrefixSymbol(xaml, documentPath, token, offsetInValue - start, namespaces, provider);
+            return plainUnderlying is { IsEnum: true } ? EnumMemberSymbol(plainUnderlying, token) : null;
         }
 
         var body = value[(open + 1)..].TrimStart();
@@ -705,7 +710,7 @@ internal static partial class EditorServices
         if (parameterName == "ElementName")
             return NamedElementSymbol(xaml, documentPath, token);
         if (parameterName == "AncestorType")
-            return SymbolFromName(token, offsetInValue - start, namespaces, provider);
+            return TypeNameOrPrefixSymbol(xaml, documentPath, token, offsetInValue - start, namespaces, provider);
         if (parameterName == "Path" && canonical is "Binding")
             return BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, elementName, token, namespaces, provider);
         if (parameterName is not null)
@@ -722,10 +727,25 @@ internal static partial class EditorServices
         {
             "StaticResource" or "DynamicResource" => ResourceKeySymbol(xaml, documentPath, token),
             "x:Reference" => NamedElementSymbol(xaml, documentPath, token),
+            "x:Type" => TypeNameOrPrefixSymbol(xaml, documentPath, token, offsetInValue - start, namespaces, provider),
             "Binding" or "TemplateBinding" => BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, elementName, token, namespaces, provider),
             "RelativeSource" => RelativeSourceModeSymbol(token, namespaces, provider),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// A type reference inside a value (<c>DataType="t:Foo"</c>, <c>{x:Type t:Foo}</c>,
+    /// <c>AncestorType=t:Foo</c>): caret on the xmlns PREFIX resolves the prefix itself,
+    /// anywhere else resolves the type.
+    /// </summary>
+    private static SymbolInfo? TypeNameOrPrefixSymbol(
+        string xaml, string? documentPath, string token, int offsetInToken, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var colon = token.IndexOf(':');
+        if (colon > 0 && offsetInToken <= colon)
+            return XmlnsPrefixSymbol(xaml, documentPath, token[..colon], namespaces);
+        return SymbolFromName(token, offsetInToken, namespaces, provider);
     }
 
     /// <summary>
