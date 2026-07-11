@@ -94,7 +94,11 @@ class CursorialPreviewEditor(
     }
 
     private val gridPanel = CellGridPanel()
-    private val statusLabel = JBLabel("", SwingConstants.LEADING)
+
+    // One line, fixed height: the strip's content must never resize the preview above it.
+    private val statusLabel = JBLabel(" ", SwingConstants.LEADING).apply {
+        preferredSize = java.awt.Dimension(0, preferredSize.height)
+    }
 
     // ── Properties panel (toggled from the toolbar) ─────────────────────
     // Presentation follows the framework's own InspectorDemo: one tree, "Name: value" per
@@ -365,17 +369,19 @@ class CursorialPreviewEditor(
         )
     }
 
+    private var lastErrorCount = -1
+
+    /**
+     * The editor's annotator owns diagnostics now (squiggles + the Problems view). The strip
+     * keeps only a quiet stale-preview cue, updated when the error COUNT changes — never per
+     * keystroke, so typing cannot jitter the pane.
+     */
     private fun showDiagnostics(event: DiagnosticsEvent) {
-        // TODO: surface as editor annotations/inspections instead of a status line.
-        val errors = event.items.filter { it.severity == "error" }
-        statusLabel.text = when {
-            event.items.isEmpty() -> ""
-            errors.isEmpty() -> "${event.items.size} diagnostic(s)"
-            else -> {
-                val first = errors.first()
-                "${errors.size} error(s) — ${first.code ?: ""} ${first.message} (${first.line}:${first.column})"
-            }
-        }
+        val errors = event.items.count { it.severity == "error" }
+        if (errors == lastErrorCount) return
+        lastErrorCount = errors
+        statusLabel.text = if (errors == 0) " "
+            else "⚠ $errors problem${if (errors == 1) "" else "s"} — preview shows the last good state"
     }
 
     private fun showHitTestResult(event: HitTestResultEvent) {
