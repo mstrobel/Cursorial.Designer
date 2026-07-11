@@ -17,6 +17,8 @@ import dev.cursorial.designer.protocol.DiagnosticsEvent
  */
 class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAnnotator.Source, CursorialXamlExternalAnnotator.Result?>() {
 
+    private val logger = com.intellij.openapi.diagnostic.logger<CursorialXamlExternalAnnotator>()
+
     /** The document snapshot captured on the EDT before the background run. */
     data class Source(val file: PsiFile, val text: String)
 
@@ -25,18 +27,23 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
 
     override fun collectInformation(file: PsiFile): Source? {
         val virtualFile = file.virtualFile ?: return null
-        if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return null
+        val ours = CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)
+        logger.info("annotator collect: ${file.name} language=${file.language.id} ours=$ours")
+        if (!ours) return null
         return Source(file, file.text)
     }
 
     override fun doAnnotate(collected: Source?): Result? {
         val source = collected ?: return null
         val diagnostics = CursorialLanguageService.getInstance(source.file.project)
-            .analyze(source.text, source.file.virtualFile?.url, source.file.virtualFile, classify = true) ?: return null
+            .analyze(source.text, source.file.virtualFile?.url, source.file.virtualFile, classify = true)
+        logger.info("annotator doAnnotate: ${source.file.name} -> items=${diagnostics?.items?.size ?: -1} tokens=${diagnostics?.tokens?.size ?: -1}")
+        if (diagnostics == null) return null
         return Result(source, diagnostics)
     }
 
     override fun apply(file: PsiFile, annotationResult: Result?, holder: AnnotationHolder) {
+        logger.info("annotator apply: ${file.name} stale=${annotationResult != null && annotationResult.source.text != file.text}")
         val result = annotationResult?.diagnostics ?: return
 
         // An edit may have slipped in during doAnnotate; positions computed against the old

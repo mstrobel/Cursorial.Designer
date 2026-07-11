@@ -18,6 +18,8 @@ import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
  */
 class CursorialXamlDocumentationProvider : AbstractDocumentationProvider() {
 
+    private val logger = com.intellij.openapi.diagnostic.logger<CursorialXamlDocumentationProvider>()
+
     /** A positional stand-in for the symbol under the caret (no structured PSI exists here). */
     class DocTarget(private val psiFile: PsiFile, val offset: Int) : FakePsiElement() {
         override fun getParent(): PsiElement = psiFile
@@ -31,11 +33,13 @@ class CursorialXamlDocumentationProvider : AbstractDocumentationProvider() {
         targetOffset: Int,
     ): PsiElement? {
         val virtualFile = file.virtualFile ?: return null
+        logger.info("docs getCustomDocumentationElement: ${file.name} lang=${file.language.id}")
         if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return null
         return DocTarget(file, targetOffset)
     }
 
     override fun generateDoc(element: PsiElement?, originalElement: PsiElement?): String? {
+        logger.info("docs generateDoc: element=${element?.javaClass?.simpleName}")
         val target = element as? DocTarget ?: return null
         val file = target.containingFile
         val virtualFile = file.virtualFile ?: return null

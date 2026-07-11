@@ -20,7 +20,10 @@ import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
  */
 class CursorialXamlGotoDeclarationHandler : GotoDeclarationHandler {
 
+    private val logger = com.intellij.openapi.diagnostic.logger<CursorialXamlGotoDeclarationHandler>()
+
     override fun getGotoDeclarationTargets(sourceElement: PsiElement?, offset: Int, editor: Editor): Array<PsiElement>? {
+        logger.info("goto: element=${sourceElement?.javaClass?.simpleName} file=${sourceElement?.containingFile?.name} lang=${sourceElement?.containingFile?.language?.id}")
         val file = sourceElement?.containingFile ?: return null
         val virtualFile = file.virtualFile ?: return null
         if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return null

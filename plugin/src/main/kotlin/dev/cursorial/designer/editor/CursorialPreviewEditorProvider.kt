@@ -29,7 +29,10 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
         // TODO: cache the sniff result per file modification stamp; accept() runs often.
         fun isCursorialXaml(file: VirtualFile): Boolean {
             if (file.isDirectory || !file.isValid) return false
-            if (!"xaml".equals(file.extension, ignoreCase = true)) return false
+            // .cxaml: an extension Rider's own XAML file type does NOT claim, so the platform's
+            // frontend pipelines (daemon passes, navigation, docs) all run normally for it.
+            val extension = file.extension
+            if (!"xaml".equals(extension, ignoreCase = true) && !"cxaml".equals(extension, ignoreCase = true)) return false
             return try {
                 file.inputStream.use { stream ->
                     val head = stream.readNBytes(SNIFF_LIMIT_BYTES)
