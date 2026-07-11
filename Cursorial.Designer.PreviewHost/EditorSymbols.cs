@@ -28,11 +28,14 @@ internal static partial class EditorServices
     // ── Semantic classification ─────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Classified token ranges for semantic highlighting. Kinds: <c>element</c> (resolvable
-    /// element names), <c>attached</c> (dotted names — attached properties and property
-    /// elements), <c>directive</c> (intrinsics-prefixed attributes), <c>extension</c> (markup
-    /// extension names inside braces). Unresolvable names are left unclassified — the
-    /// diagnostics squiggles already own that story.
+    /// Classified token ranges for semantic highlighting. Semantic kinds: <c>element</c>
+    /// (resolvable element names), <c>attached</c> (dotted names — attached properties and
+    /// property elements), <c>directive</c> (intrinsics-prefixed attributes), <c>extension</c>
+    /// (markup extension names inside braces). Base kinds — <c>comment</c>, <c>attribute</c>
+    /// (plain attribute names), <c>string</c> (quoted values without extensions) — make the set
+    /// a COMPLETE highlighter for hosts with no native lexer (plain-text .cxaml); IDEs with
+    /// native XML coloring apply only the semantic kinds. Unresolvable names are left
+    /// unclassified — the diagnostics squiggles own that story.
     /// </summary>
     internal static List<TokenInfo> ClassifyTokens(string xaml)
     {
@@ -57,6 +60,10 @@ internal static partial class EditorServices
             return known;
         }
 
+        // Comments/CDATA/PIs from the ORIGINAL text — they're blanked out of everything below.
+        foreach (Match region in NonMarkupRegion().Matches(xaml))
+            Add(region.Index, region.Length, "comment");
+
         foreach (Match tag in TagToken().Matches(blanked))
         {
             var nameGroup = tag.Groups[2];
@@ -74,8 +81,18 @@ internal static partial class EditorServices
                     Add(attributes.Index + attrName.Index, attrName.Length, "directive");
                 else if (attrName.Value.Contains('.'))
                     Add(attributes.Index + attrName.Index, attrName.Length, "attached");
+                else
+                    Add(attributes.Index + attrName.Index, attrName.Length, "attribute");
 
                 var value = attribute.Groups[2];
+                if (!value.Value.Contains('{'))
+                {
+                    // The quoted value, quotes included. Extension-bearing values stay uncolored
+                    // apart from their extension-name tokens — overlapping attribute layers muddy.
+                    Add(attributes.Index + value.Index - 1, value.Length + 2, "string");
+                    continue;
+                }
+
                 foreach (Match extension in ExtensionNameToken().Matches(value.Value))
                 {
                     var name = extension.Groups[1];

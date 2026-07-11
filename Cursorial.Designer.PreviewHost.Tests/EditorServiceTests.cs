@@ -367,15 +367,18 @@ public class EditorServiceTests : IDisposable
     [Fact]
     public void Analyze_with_classify_returns_semantic_tokens()
     {
-        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock x:Name=\"Title\" Grid.Row=\"1\" Text=\"{{Binding Greeting}}\"/>\n</StackPanel>";
+        var xaml = $"<StackPanel {Xmlns}>\n    <!-- note -->\n    <TextBlock x:Name=\"Title\" Grid.Row=\"1\" Text=\"{{Binding Greeting}}\"/>\n</StackPanel>";
         _session.Execute(new AnalyzeCommand { Id = 81, Xaml = xaml, Classify = true });
 
         var diagnostics = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent));
         Assert.NotNull(diagnostics.Tokens);
-        Assert.Contains(diagnostics.Tokens!, t => t is { Kind: "element", Line: 2 });   // TextBlock
+        Assert.Contains(diagnostics.Tokens!, t => t is { Kind: "element", Line: 3 });   // TextBlock
         Assert.Contains(diagnostics.Tokens!, t => t.Kind == "directive");               // x:Name
         Assert.Contains(diagnostics.Tokens!, t => t.Kind == "attached");                // Grid.Row
         Assert.Contains(diagnostics.Tokens!, t => t.Kind == "extension");               // Binding
+        Assert.Contains(diagnostics.Tokens!, t => t is { Kind: "comment", Line: 2 });   // <!-- note -->
+        Assert.Contains(diagnostics.Tokens!, t => t.Kind == "string");                  // "1" (no extension)
+        // Grid.Row's value "1" is a string token; Text's extension-bearing value is not.
     }
 
     [Fact]

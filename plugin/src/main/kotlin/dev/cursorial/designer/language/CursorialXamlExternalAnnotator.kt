@@ -68,7 +68,11 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
         // Semantic highlighting: the host's classified token ranges, rendered as silent
         // informational annotations. The frontend has no XML PSI for these files, so this is
         // the only layer that knows an element from an attached property from an extension.
+        // Base kinds (comments, plain attributes, strings) apply only where no native lexer
+        // colors them — plain text; Rider's Xaml language already paints those natively.
+        val hasNativeLexer = file.language.id != "TEXT"
         for (token in result.tokens.orEmpty()) {
+            if (hasNativeLexer && token.k in baseKinds) continue
             val key = tokenAttributes[token.k] ?: continue
             val start = offsetOf(text, token.l, token.c) ?: continue
             val end = (start + token.n).coerceAtMost(text.length)
@@ -92,7 +96,16 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
                 "CURSORIAL_XAML_DIRECTIVE", DefaultLanguageHighlighterColors.METADATA),
             "extension" to TextAttributesKey.createTextAttributesKey(
                 "CURSORIAL_XAML_EXTENSION", DefaultLanguageHighlighterColors.KEYWORD),
+            "comment" to TextAttributesKey.createTextAttributesKey(
+                "CURSORIAL_XAML_COMMENT", DefaultLanguageHighlighterColors.BLOCK_COMMENT),
+            "attribute" to TextAttributesKey.createTextAttributesKey(
+                "CURSORIAL_XAML_ATTRIBUTE", DefaultLanguageHighlighterColors.INSTANCE_FIELD),
+            "string" to TextAttributesKey.createTextAttributesKey(
+                "CURSORIAL_XAML_STRING", DefaultLanguageHighlighterColors.STRING),
         )
+
+        /** Kinds a native lexer already paints; applied only on plain-text files. */
+        val baseKinds = setOf("comment", "attribute", "string")
     }
 
     /** 1-based (line, column) to offset; null when the position falls outside the snapshot. */
