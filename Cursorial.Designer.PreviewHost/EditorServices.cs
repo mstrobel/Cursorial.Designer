@@ -318,6 +318,12 @@ internal static partial class EditorServices
 
             case ContextKind.AttributeValue:
             {
+                if (context.AttributeName == "Selector")
+                {
+                    items.AddRange(SelectorCompletions(context.Prefix, xaml, namespaces, provider));
+                    break;
+                }
+
                 var extensionItems = CompleteExtension(context.Prefix, xaml, namespaces, provider);
                 if (extensionItems is not null)
                 {

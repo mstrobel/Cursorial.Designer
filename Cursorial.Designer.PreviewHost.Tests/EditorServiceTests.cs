@@ -535,6 +535,57 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_pseudo_classes_in_selectors()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button:\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 96, Xaml = xaml, Line = 2, Column = 29 }); // after ':'
+
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "pointerover", Detail: "InteractionState.PointerOver" });
+        Assert.Contains(completions.Items, i => i is { Text: "disabled" });
+        Assert.Contains(completions.Items, i => i is { Text: "is", Insert: "is(" });
+        // Control-defined mappings (registered in static ctors, warmed by the completion sweep).
+        Assert.Contains(completions.Items, i => i.Text == "today" && i.Detail!.Contains("IsToday"));
+    }
+
+    [Fact]
+    public void Complete_offers_element_types_in_selectors()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"But\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 97, Xaml = xaml, Line = 2, Column = 25 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Button", Kind: "element" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "SolidColorBrush"); // not a UIElement
+    }
+
+    [Fact]
+    public void Hover_resolves_interaction_pseudo_classes()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"Button:pointerover\"/>\n</StackPanel>";
+        var line2 = "    <Style Selector=\"Button:pointerover\"/>";
+        var column = line2.IndexOf("pointerover", StringComparison.Ordinal) + 3;
+        _session.Execute(new HoverCommand { Id = 98, Xaml = xaml, Line = 2, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("InteractionState.PointerOver", hover.Signature);
+    }
+
+    [Fact]
+    public void Hover_resolves_mapping_backed_pseudo_classes()
+    {
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(Cursorial.UI.Controls.CalendarButton).TypeHandle);
+        var xaml = $"<StackPanel {Xmlns}>\n    <Style Selector=\"CalendarButton:today\"/>\n</StackPanel>";
+        var line2 = "    <Style Selector=\"CalendarButton:today\"/>";
+        var column = line2.IndexOf("today", StringComparison.Ordinal) + 2;
+        _session.Execute(new HoverCommand { Id = 99, Xaml = xaml, Line = 2, Column = column });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("CalendarButton.IsToday", hover.Signature);
+    }
+
+    [Fact]
     public void Hover_resolves_plain_enum_values()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Button Visibility=\"Hidden\"/>\n</StackPanel>";

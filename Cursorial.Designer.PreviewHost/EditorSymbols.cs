@@ -677,6 +677,86 @@ internal static partial class EditorServices
         };
     }
 
+    /// <summary>
+    /// Completion inside a style selector, dispatched by the marker before the caret token:
+    /// <c>:</c> offers pseudo-classes (interaction-backed + control-defined mappings + the
+    /// <c>is()</c> operator), <c>#</c> offers the document's named elements, bare tokens offer
+    /// element types. The CSS-reflex tax collector: nobody should have to remember that hover
+    /// spells <c>:pointerover</c>.
+    /// </summary>
+    internal static List<CompletionItemInfo> SelectorCompletions(string prefix, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var i = prefix.Length - 1;
+        while (i >= 0 && (char.IsLetterOrDigit(prefix[i]) || prefix[i] is '_' or '-'))
+            i--;
+        var marker = i >= 0 ? prefix[i] : '\0';
+
+        return marker switch
+        {
+            ':' => PseudoClassItems(namespaces, provider),
+            '#' => NamedElementItems(xaml),
+            '.' => [],
+            _ => SelectorTypeItems(namespaces, provider),
+        };
+    }
+
+    private static List<CompletionItemInfo> PseudoClassItems(Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        // Control-defined mappings register in static constructors; make sure the known element
+        // types have run theirs (provider caches — a one-time sweep per process).
+        foreach (var (_, uri) in namespaces)
+        {
+            foreach (var name in provider.GetKnownTypeNames(uri))
+                SafeResolve(provider, uri, name);
+        }
+
+        var items = new List<CompletionItemInfo>();
+        foreach (var name in Cursorial.UI.InteractionPseudoClasses.Names)
+        {
+            Cursorial.UI.InteractionPseudoClasses.TryGetState(name, out var state);
+            items.Add(new CompletionItemInfo { Text = name.TrimStart(':'), Kind = "value", Detail = $"InteractionState.{state}" });
+        }
+
+        foreach (var mapping in Cursorial.UI.PseudoClassMapping.Snapshot())
+        {
+            foreach (var pseudoClass in mapping.PseudoClasses)
+            {
+                items.Add(new CompletionItemInfo
+                {
+                    Text = pseudoClass.TrimStart(':'),
+                    Kind = "value",
+                    Detail = $"{mapping.OwnerType.Name}.{mapping.Property.Name}",
+                });
+            }
+        }
+
+        items.Add(new CompletionItemInfo { Text = "is", Kind = "value", Detail = "operator", Insert = "is(" });
+        return items.DistinctBy(item => item.Text).ToList();
+    }
+
+    private static List<CompletionItemInfo> SelectorTypeItems(Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var items = new List<CompletionItemInfo>();
+        foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key, StringComparer.Ordinal))
+        {
+            foreach (var name in provider.GetKnownTypeNames(uri))
+            {
+                var clr = SafeResolve(provider, uri, name)?.ClrType.UnderlyingSystemType;
+                if (clr is null || !typeof(Cursorial.UI.UIElement).IsAssignableFrom(clr))
+                    continue;
+
+                items.Add(new CompletionItemInfo
+                {
+                    Text = prefix.Length == 0 ? name : $"{prefix}:{name}",
+                    Kind = "element",
+                    Detail = clr.Namespace,
+                });
+            }
+        }
+
+        return items.DistinctBy(item => item.Text).ToList();
+    }
+
     /// <summary>The symbol under the caret in a style selector: a type, a #named element, a .class, a :pseudo-class, or the ^ nesting anchor.</summary>
     private static SymbolInfo? SelectorSymbol(string xaml, string? documentPath, string value, int offset, int enclosingTagOffset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
@@ -702,9 +782,45 @@ internal static partial class EditorServices
         {
             '#' => NamedElementSymbol(xaml, documentPath, token),
             '.' => new SymbolInfo($".{token}", $"style class .{token}", null, null, [], null),
-            ':' => new SymbolInfo($":{token}", $"pseudo-class :{token}", null, null, [], null),
+            ':' => PseudoClassSymbol(token),
             _ => SymbolFromName(token, offset - start, namespaces, provider),
         };
+    }
+
+    /// <summary>A pseudo-class: interaction-backed names document via their InteractionState bit,
+    /// mapping-backed ones via their owning property.</summary>
+    private static SymbolInfo PseudoClassSymbol(string token)
+    {
+        var name = ":" + token;
+        if (Cursorial.UI.InteractionPseudoClasses.TryGetState(name, out var state))
+        {
+            var enumType = typeof(Cursorial.UI.InteractionState);
+            var field = enumType.GetField(state.ToString(), BindingFlags.Public | BindingFlags.Static);
+            return new SymbolInfo(
+                name,
+                $"pseudo-class {name} — InteractionState.{state}",
+                enumType,
+                field,
+                [$"F:{DocTypeName(enumType)}.{state}"],
+                null);
+        }
+
+        foreach (var mapping in Cursorial.UI.PseudoClassMapping.Snapshot())
+        {
+            if (!mapping.PseudoClasses.Contains(name))
+                continue;
+
+            var property = mapping.OwnerType.GetProperty(mapping.Property.Name, BindingFlags.Public | BindingFlags.Instance);
+            return new SymbolInfo(
+                name,
+                $"pseudo-class {name} — {mapping.OwnerType.Name}.{mapping.Property.Name}",
+                mapping.OwnerType,
+                property,
+                [$"P:{DocTypeName(mapping.OwnerType)}.{mapping.Property.Name}", $"F:{DocTypeName(mapping.OwnerType)}.{mapping.Property.Name}Property"],
+                null);
+        }
+
+        return new SymbolInfo(name, $"pseudo-class {name}", null, null, [], null);
     }
 
     /// <summary>The <c>{x:Static Owner.Member}</c> path symbol: static field (with value) or property.</summary>

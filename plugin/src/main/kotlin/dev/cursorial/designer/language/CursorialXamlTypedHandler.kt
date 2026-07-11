@@ -18,6 +18,15 @@ import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
  */
 class CursorialXamlTypedHandler : TypedHandlerDelegate() {
 
+    override fun checkAutoPopup(charTyped: Char, project: Project, editor: Editor, file: PsiFile): Result {
+        // ':' and '#' start pseudo-class / named-element tokens in selectors; pop completion.
+        if (charTyped != ':' && charTyped != '#') return Result.CONTINUE
+        val virtualFile = file.virtualFile ?: return Result.CONTINUE
+        if (!CursorialPreviewEditorProvider.isCursorialXaml(virtualFile)) return Result.CONTINUE
+        com.intellij.codeInsight.AutoPopupController.getInstance(project).scheduleAutoPopup(editor)
+        return Result.STOP
+    }
+
     override fun charTyped(c: Char, project: Project, editor: Editor, file: PsiFile): Result {
         if (c != '>' && c != '/') return Result.CONTINUE
         val virtualFile = file.virtualFile ?: return Result.CONTINUE
