@@ -27,6 +27,11 @@ object CursorialXamlColors {
             ?: DefaultLanguageHighlighterColors.INSTANCE_FIELD
     }
 
+    private val namespaceLike: TextAttributesKey by lazy {
+        TextAttributesKey.find("ReSharper.NAMESPACE_IDENTIFIER").takeIf { it.defaultAttributes != null }
+            ?: DefaultLanguageHighlighterColors.IDENTIFIER
+    }
+
     val ELEMENT: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ELEMENT", DefaultLanguageHighlighterColors.CLASS_REFERENCE)
     val ATTRIBUTE: TextAttributesKey by lazy {
@@ -69,6 +74,9 @@ object CursorialXamlColors {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_STYLE_CLASS", DefaultLanguageHighlighterColors.INSTANCE_METHOD)
     val PSEUDO_CLASS: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_PSEUDO_CLASS", DefaultLanguageHighlighterColors.METADATA)
+    val NAMESPACE_PREFIX: TextAttributesKey by lazy {
+        TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_NAMESPACE_PREFIX", namespaceLike)
+    }
 
     /** Host token kinds → keys. Lazy: the property-like keys resolve against R#'s scheme on first use. */
     val byKind: Map<String, TextAttributesKey> by lazy { mapOf(
@@ -91,6 +99,7 @@ object CursorialXamlColors {
         "bool" to BOOL,
         "styleClass" to STYLE_CLASS,
         "pseudoClass" to PSEUDO_CLASS,
+        "namespace" to NAMESPACE_PREFIX,
     ) }
 
     /** Kinds a native lexer already paints correctly; applied only on plain-text files. */
@@ -127,6 +136,7 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
         AttributesDescriptor("Boolean literal", CursorialXamlColors.BOOL),
         AttributesDescriptor("Style class (selector)", CursorialXamlColors.STYLE_CLASS),
         AttributesDescriptor("Pseudo-class (selector)", CursorialXamlColors.PSEUDO_CLASS),
+        AttributesDescriptor("Namespace prefix", CursorialXamlColors.NAMESPACE_PREFIX),
     )
 
     override fun getColorDescriptors(): Array<ColorDescriptor> = ColorDescriptor.EMPTY_ARRAY
@@ -134,7 +144,7 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
     override fun getDemoText(): String = """
         <comment><!-- A Cursorial view --></comment>
         <<element>DockPanel</element> xmlns="https://cursorial.dev/ui"
-                   xmlns:x="https://cursorial.dev/xaml"
+                   xmlns<dot>:</dot><namespace>x</namespace>="https://cursorial.dev/xaml"
                    <directive>x:Name</directive>="Root"
                    <attribute>Padding</attribute>="<number>1</number>"
                    <element>Grid</element><dot>.</dot><attached>Row</attached>="<number>0</number>"
@@ -144,6 +154,7 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
                    <attribute>Text</attribute>="<brace>{</brace><extension>Binding</extension> <parameter>Path</parameter>=<bindingPath>Title</bindingPath>, <parameter>ElementName</parameter>=<elementRef>Root</elementRef><brace>}</brace>"
                    <attribute>Tag</attribute>="<brace>{</brace><extension>StaticResource</extension> <resourceKey>PanelAccent</resourceKey><brace>}</brace>">
             <<element>Style</element> <attribute>Selector</attribute>="<element>Button</element><styleClass>.accent</styleClass><pseudoClass>:pointerover</pseudoClass> <dot>></dot> <element>TextBlock</element>"/>
+            <<element>DataTemplate</element> <attribute>DataType</attribute>="<namespace>x</namespace><dot>:</dot><element>String</element>"/>
             <<element>TextBlock</element> <attribute>Text</attribute>=<string>"Hello"</string>/>
         </<element>DockPanel</element>>
     """.trimIndent()
@@ -168,5 +179,6 @@ class CursorialXamlColorSettingsPage : ColorSettingsPage {
         "bool" to CursorialXamlColors.BOOL,
         "styleClass" to CursorialXamlColors.STYLE_CLASS,
         "pseudoClass" to CursorialXamlColors.PSEUDO_CLASS,
+        "namespace" to CursorialXamlColors.NAMESPACE_PREFIX,
     )
 }

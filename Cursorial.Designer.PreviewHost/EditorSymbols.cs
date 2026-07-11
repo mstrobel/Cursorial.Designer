@@ -94,10 +94,27 @@ internal static partial class EditorServices
             var ownerName = name[..dot];
             var memberName = name[(dot + 1)..];
             if (Resolves(ownerName))
-                Add(start, dot, "element");
+                AddTypeName(start, ownerName);
             Add(start + dot, 1, "dot");
             if (memberName.Length > 0)
                 Add(start + dot + 1, memberName.Length, DottedMemberKind(ownerName, memberName));
+        }
+
+        // A possibly-prefixed type reference: the xmlns prefix gets its own kind (consistent
+        // with the declaration side), the colon paints as a delimiter, the local name as the type.
+        void AddTypeName(int start, string name)
+        {
+            var prefixColon = name.IndexOf(':');
+            if (prefixColon <= 0)
+            {
+                Add(start, name.Length, "element");
+                return;
+            }
+
+            Add(start, prefixColon, "namespace");
+            Add(start + prefixColon, 1, "dot");
+            if (prefixColon + 1 < name.Length)
+                Add(start + prefixColon + 1, name.Length - prefixColon - 1, "element");
         }
 
         Type? ValueType(string elementName, string attributeName)
@@ -135,7 +152,7 @@ internal static partial class EditorServices
                 // Type-typed values (DataType, x:TypeArguments-style) are type references.
                 if (type == typeof(Type) && Resolves(content.Trim()))
                 {
-                    Add(contentStart, content.Length, "element");
+                    AddTypeName(contentStart, content);
                     return;
                 }
 
@@ -229,7 +246,12 @@ internal static partial class EditorServices
                             i++;
                         var value = content[valueStart..i].TrimEnd();
                         if (value.Length > 0 && ParameterValueKind(extensionName, token, value) is { } kind)
-                            Add(contentStart + valueStart, value.Length, kind);
+                        {
+                            if (kind == "element")
+                                AddTypeName(contentStart + valueStart, value);
+                            else
+                                Add(contentStart + valueStart, value.Length, kind);
+                        }
                         continue;
                     }
 
@@ -253,20 +275,20 @@ internal static partial class EditorServices
                     var lastDot = token.LastIndexOf('.');
                     if (lastDot > 0)
                     {
-                        Add(absStart, lastDot, "element");
+                        AddTypeName(absStart, token[..lastDot]);
                         Add(absStart + lastDot, 1, "dot");
                         if (lastDot + 1 < token.Length)
                             Add(absStart + lastDot + 1, token.Length - lastDot - 1, "staticMember");
                     }
                     else
                     {
-                        Add(absStart, token.Length, "element");
+                        AddTypeName(absStart, token);
                     }
 
                     break;
 
                 case "x:Type":
-                    Add(absStart, token.Length, "element");
+                    AddTypeName(absStart, token);
                     break;
 
                 case "x:Reference":
@@ -373,7 +395,7 @@ internal static partial class EditorServices
             if (elementName.Contains('.'))
                 AddName(nameGroup.Index, elementName);
             else if (Resolves(elementName))
-                Add(nameGroup.Index, nameGroup.Length, "element");
+                AddTypeName(nameGroup.Index, elementName);
 
             var attributes = tag.Groups[3];
             foreach (Match attribute in AttributeToken().Matches(attributes.Value))
@@ -381,9 +403,20 @@ internal static partial class EditorServices
                 var attrName = attribute.Groups[1];
                 var colon = attrName.Value.IndexOf(':');
                 if (colon > 0 && intrinsicsPrefix is { Length: > 0 } && attrName.Value[..colon] == intrinsicsPrefix)
+                {
                     Add(attributes.Index + attrName.Index, attrName.Length, "directive");
+                }
+                else if (colon > 0 && attrName.Value[..colon] == "xmlns")
+                {
+                    var declStart = attributes.Index + attrName.Index;
+                    Add(declStart, colon, "attribute");
+                    Add(declStart + colon, 1, "dot");
+                    Add(declStart + colon + 1, attrName.Length - colon - 1, "namespace");
+                }
                 else
+                {
                     AddName(attributes.Index + attrName.Index, attrName.Value);
+                }
 
                 var value = attribute.Groups[2];
                 if (attrName.Value == "Selector")
