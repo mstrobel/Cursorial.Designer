@@ -596,7 +596,8 @@ internal sealed class PreviewSession : IDisposable
 
         var element = _elementsById[command.ElementId];
         var items = new List<PropertyEntry>();
-        foreach (var property in element.GetSetProperties())
+        var setProperties = element.GetSetProperties();
+        foreach (var property in setProperties)
         {
             // Provenance is best-effort decoration; a property the diagnostics can't explain
             // still belongs in the grid.
@@ -663,6 +664,51 @@ internal sealed class PreviewSession : IDisposable
                 Frames = frames,
                 BindingTarget = bindingTarget,
                 Bindings = bindings,
+            });
+        }
+
+        // Inherited contributions have no store entry on this element — GetSetProperties
+        // excludes them by design ("not SET here") — but they absolutely belong in the
+        // inspector. The registry's inheriting set (UIProperties) is the list of properties
+        // worth asking; GetValueSource narrows to the ones actually flowing from an ancestor.
+        foreach (var property in UIProperties.Inheriting)
+        {
+            if (setProperties.Contains(property))
+                continue;
+
+            ValueSource source;
+            try
+            {
+                source = element.GetValueSource(property);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (source.Kind != ValueSourceKind.Inherited)
+                continue;
+
+            string? explanation = null;
+            try
+            {
+                explanation = StyleDiagnostics.Explain(element, property);
+            }
+            catch
+            {
+            }
+
+            items.Add(new PropertyEntry
+            {
+                Name = property.Name,
+                Value = ValueFormatter.Format(element.GetValue(property)),
+                Swatch = ValueFormatter.SwatchHex(element.GetValue(property)),
+                ValueSource = source.Kind.ToString(),
+                DeclaringType = property.OwnerType.IsInstanceOfType(element) ? null : property.OwnerType.Name,
+                Explanation = explanation,
+                Priority = source.Priority.ToString(),
+                BasePriority = source.BasePriority != source.Priority ? source.BasePriority.ToString() : null,
+                IsAnimated = source.IsAnimated ? true : null,
             });
         }
 

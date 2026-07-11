@@ -388,14 +388,21 @@ internal static partial class EditorServices
         return add?.GetParameters()[^1].ParameterType;
     }
 
-    /// <summary>Attached-property names declared by <paramref name="owner"/> via the
-    /// <c>public static readonly AttachedProperty&lt;T&gt; NameProperty</c> convention.</summary>
+    /// <summary>
+    /// Attached-property names declared by <paramref name="owner"/>. The registry
+    /// (<see cref="UIProperties.AttachedBy"/>) knows every registered attached property
+    /// regardless of field naming; the <c>public static readonly AttachedProperty&lt;T&gt;
+    /// NameProperty</c> field convention additionally covers owners whose static constructor
+    /// hasn't run yet (reading field names doesn't trigger it). Union of both.
+    /// </summary>
     private static IEnumerable<string> AttachedPropertyNames(Type owner)
-        => owner.GetFields(BindingFlags.Public | BindingFlags.Static)
-            .Where(f => f.Name.EndsWith("Property", StringComparison.Ordinal)
-                        && f.FieldType.IsGenericType
-                        && f.FieldType.GetGenericTypeDefinition() == typeof(AttachedProperty<>))
-            .Select(f => f.Name[..^"Property".Length]);
+        => UIProperties.AttachedBy(owner).Select(p => p.Name)
+            .Concat(owner.GetFields(BindingFlags.Public | BindingFlags.Static)
+                .Where(f => f.Name.EndsWith("Property", StringComparison.Ordinal)
+                            && f.FieldType.IsGenericType
+                            && f.FieldType.GetGenericTypeDefinition() == typeof(AttachedProperty<>))
+                .Select(f => f.Name[..^"Property".Length]))
+            .Distinct(StringComparer.Ordinal);
 
     private static XamlType? ResolveElement(string elementName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {

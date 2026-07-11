@@ -305,6 +305,31 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void GetProperties_reports_inherited_values_without_local_entries()
+    {
+        Initialize();
+        Load($"""
+              <StackPanel {Xmlns} TextElement.Foreground="#ff8800">
+                  <TextBlock x:Name="Child" Text="inheriting"/>
+              </StackPanel>
+              """);
+
+        _session.Execute(new HitTestCommand { Id = 81, Column = 1, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var textId = Assert.Single(hit.Elements, e => e.ElementType == "TextBlock").ElementId;
+
+        _session.Execute(new GetPropertiesCommand { Id = 82, ElementId = textId });
+        var properties = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
+
+        // The child never sets Foreground; the value flows from the ancestor. GetSetProperties
+        // excludes inherited-only contributions by design — the registry's inheriting set
+        // (UIProperties.Inheriting, framework PR #17) is how the inspector knows to ask.
+        var foreground = Assert.Single(properties.Items, p => p.Name == "Foreground");
+        Assert.Equal("Inherited", foreground.ValueSource);
+        Assert.Equal("TextElement", foreground.DeclaringType);
+    }
+
+    [Fact]
     public void GetProperties_includes_style_frames_for_styled_values()
     {
         Initialize();
