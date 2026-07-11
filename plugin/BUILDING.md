@@ -90,6 +90,14 @@ chmod +x ~/.gradle/caches/*/transforms/*/transformed/riderRD-*/bin/mac/*/fsnotif
 (Harmless to ignore for preview work — the plugin reads the in-editor document, not the
 filesystem. Recurs whenever the SDK cache is re-transformed, e.g. after a version bump.)
 
+**Sandbox settings persistence:** the sandbox keeps its config between runs, but
+`prepareSandbox` rebuilds the *plugins* directory every run — anything installed inside the
+sandbox (e.g. a keymap plugin) silently vanishes on the next launch, reverting derived custom
+keymaps with it. The build seeds the developer's real Rider keymaps (once) and re-seeds
+`XWinKeymap` every prepare (see `prepareSandbox` in build.gradle.kts). Also: quit the sandbox
+IDE with Cmd+Q rather than Ctrl+C on Gradle, or freshly-changed settings may never flush to
+disk. Verified persisting across shutdown/relaunch 2026-07-11.
+
 **Not verified / review before shipping:**
 
 - The plugin has not been exercised inside a running Rider (no `runIde` smoke test).
