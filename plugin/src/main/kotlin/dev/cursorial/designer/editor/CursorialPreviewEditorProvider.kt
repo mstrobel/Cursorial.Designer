@@ -1,5 +1,6 @@
 package dev.cursorial.designer.editor
 
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
@@ -50,7 +51,41 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
         val textEditor = TextEditorProvider.getInstance().createEditor(project, file) as TextEditor
         val previewEditor = CursorialPreviewEditor(project, file, textEditor)
         // TextEditorWithPreview disposes both child editors on its own disposal.
-        return TextEditorWithPreview(textEditor, previewEditor, "Cursorial Designer")
+        return RememberingSplitEditor(textEditor, previewEditor)
+    }
+
+    /**
+     * The split editor, remembering how the user last arranged it (globally, not per file):
+     * layout mode (text / split / preview) and split orientation are read back at construction
+     * and saved on dispose. The inner preview/properties divider persists separately via its
+     * splitter proportion key.
+     */
+    private class RememberingSplitEditor(textEditor: TextEditor, previewEditor: CursorialPreviewEditor) :
+        TextEditorWithPreview(textEditor, previewEditor, "Cursorial Designer", savedLayout()) {
+
+        private companion object {
+            const val LAYOUT_KEY = "cursorial.designer.editor.layout"
+            const val VERTICAL_KEY = "cursorial.designer.editor.verticalSplit"
+
+            fun savedLayout(): Layout =
+                PropertiesComponent.getInstance().getValue(LAYOUT_KEY)
+                    ?.let { saved -> Layout.entries.firstOrNull { it.name == saved } }
+                    ?: Layout.SHOW_EDITOR_AND_PREVIEW
+        }
+
+        init {
+            if (PropertiesComponent.getInstance().getBoolean(VERTICAL_KEY, false))
+                setState(MyFileEditorState(savedLayout(), null, null, isVerticalSplit = true))
+        }
+
+        override fun dispose() {
+            // layout/isVerticalSplit are private here; the public FileEditor state carries both.
+            (getState(com.intellij.openapi.fileEditor.FileEditorStateLevel.FULL) as? MyFileEditorState)?.let { state ->
+                PropertiesComponent.getInstance().setValue(LAYOUT_KEY, state.splitLayout?.name)
+                PropertiesComponent.getInstance().setValue(VERTICAL_KEY, state.isVerticalSplit, false)
+            }
+            super.dispose()
+        }
     }
 
     override fun getEditorTypeId(): String = EDITOR_TYPE_ID

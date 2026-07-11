@@ -179,6 +179,8 @@ class CursorialPreviewEditor(
     }
 
     private val splitter = com.intellij.ui.JBSplitter(false, 0.72f).apply {
+        // Remember where the user parks the properties divider (global, PropertiesComponent-backed).
+        setAndLoadSplitterProportionKey("cursorial.designer.preview.propertiesSplitter")
         firstComponent = gridScrollPane
         secondComponent = null // hidden until the toolbar toggle shows it
     }
