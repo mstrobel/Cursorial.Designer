@@ -131,6 +131,12 @@ class PropertyInspectorTable {
             properties?.items?.forEach { add(propertySpec(it)) }
         }
         reconcile(root, specs)
+
+        // The root is invisible: JTree only shows its children while the root PATH is expanded,
+        // and inserting into a never-expanded empty root renders nothing (the old full-reload
+        // path re-expanded it implicitly every rebuild).
+        if (root.childCount > 0)
+            table.tree.expandPath(javax.swing.tree.TreePath(root))
     }
 
     // ── Diffing ─────────────────────────────────────────────────────────────
