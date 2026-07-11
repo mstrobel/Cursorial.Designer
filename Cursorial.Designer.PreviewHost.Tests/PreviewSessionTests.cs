@@ -42,8 +42,34 @@ public class PreviewSessionTests : IDisposable
 
     private FrameEvent LastFrame() => Assert.IsType<FrameEvent>(_events.Last(e => e is FrameEvent));
 
-    private static string FrameText(FrameEvent frame)
-        => string.Join('\n', frame.Lines.Select(runs => string.Concat(runs.Select(r => r.Text))));
+    private sealed record FoldedRun(string Text, int Width, StyleInfo Style);
+
+    /// <summary>Folds the emitted frame stream (fulls + row deltas) into the current screen state.</summary>
+    private (int Columns, int Rows, List<List<FoldedRun>> Lines) Fold()
+    {
+        var columns = 0;
+        var rows = 0;
+        List<List<FoldedRun>> lines = [];
+        foreach (var frame in _events.OfType<FrameEvent>())
+        {
+            if (frame.Delta == true)
+            {
+                foreach (var change in frame.Changed ?? [])
+                    lines[change.Index] = change.Runs.Select(r => new FoldedRun(r.Text, r.Width, frame.Styles[r.StyleIndex])).ToList();
+            }
+            else
+            {
+                columns = frame.Columns;
+                rows = frame.Rows;
+                lines = frame.Lines.Select(runs => runs.Select(r => new FoldedRun(r.Text, r.Width, frame.Styles[r.StyleIndex])).ToList()).ToList();
+            }
+        }
+
+        return (columns, rows, lines);
+    }
+
+    private string FrameText()
+        => string.Join('\n', Fold().Lines.Select(runs => string.Concat(runs.Select(r => r.Text))));
 
     [Fact]
     public void Initialize_emits_a_frame_of_the_requested_size()
@@ -104,7 +130,7 @@ public class PreviewSessionTests : IDisposable
         Assert.Equal(5, diagnostics.ReplyTo);
         Assert.Empty(diagnostics.Items);
 
-        var text = FrameText(LastFrame());
+        var text = FrameText();
         Assert.Contains("Hello Designer", text);
         Assert.Contains("Press Me", text);
     }
@@ -136,7 +162,7 @@ public class PreviewSessionTests : IDisposable
         Load($"""<StackPanel {Xmlns}><Broken/></StackPanel>""");
 
         Assert.Equal(framesBefore, _events.Count(e => e is FrameEvent)); // no new frame for the bad load
-        Assert.Contains("Survivor", FrameText(LastFrame()));
+        Assert.Contains("Survivor", FrameText());
     }
 
     [Fact]
@@ -147,10 +173,10 @@ public class PreviewSessionTests : IDisposable
 
         _session.Execute(new ResizeCommand { Columns = 100, Rows = 30 });
 
-        var frame = LastFrame();
-        Assert.Equal(100, frame.Columns);
-        Assert.Equal(30, frame.Rows);
-        Assert.Contains("resize me", FrameText(frame));
+        var folded = Fold();
+        Assert.Equal(100, folded.Columns);
+        Assert.Equal(30, folded.Rows);
+        Assert.Contains("resize me", FrameText());
     }
 
     [Fact]
@@ -371,18 +397,13 @@ public class PreviewSessionTests : IDisposable
     {
         Initialize();
         Load($"""<StackPanel {Xmlns}><Button Content="Theme probe"/></StackPanel>""");
-        var darkFrame = LastFrame();
+        var darkStyles = Fold().Lines.SelectMany(r => r).Select(r => (r.Style.Fg, r.Style.Bg)).ToHashSet();
 
         _session.Execute(new SetThemeCommand { ThemeBase = "light" });
 
-        var lightFrame = LastFrame();
-        Assert.NotSame(darkFrame, lightFrame);
-        Assert.Contains("Theme probe", FrameText(lightFrame));
-
-        // The style tables should differ between dark and light renders.
-        Assert.NotEqual(
-            darkFrame.Styles.Select(s => (s.Fg, s.Bg)).ToList(),
-            lightFrame.Styles.Select(s => (s.Fg, s.Bg)).ToList());
+        Assert.Contains("Theme probe", FrameText());
+        var lightStyles = Fold().Lines.SelectMany(r => r).Select(r => (r.Style.Fg, r.Style.Bg)).ToHashSet();
+        Assert.NotEqual(darkStyles, lightStyles);
     }
 
     [Fact]
@@ -402,13 +423,12 @@ public class PreviewSessionTests : IDisposable
         var error = Assert.IsType<ErrorEvent>(_events.Last(e => e is ErrorEvent));
         Assert.Equal(7, error.ReplyTo);
         Assert.Contains("reverted", error.Message);
-        Assert.Contains("Survivor", FrameText(LastFrame()));
+        Assert.Contains("Survivor", FrameText());
 
         // The session must remain fully functional after the broken document.
         _session.Execute(new ResizeCommand { Columns = 80, Rows = 20 });
-        var frame = LastFrame();
-        Assert.Equal(80, frame.Columns);
-        Assert.Contains("Survivor", FrameText(frame));
+        Assert.Equal(80, Fold().Columns);
+        Assert.Contains("Survivor", FrameText());
     }
 
     [Fact]
@@ -433,9 +453,10 @@ public class PreviewSessionTests : IDisposable
         Load($"""<StackPanel {Xmlns}><TextBlock Text="tick"/></StackPanel>""");
         var frames = _events.Count(e => e is FrameEvent);
 
+        // Static content: advancing the clock changes nothing, so nothing is emitted — the
+        // whole point of no-change suppression for play mode.
         _session.Execute(new AdvanceTimeCommand { Milliseconds = 100 });
-
-        Assert.Equal(frames + 1, _events.Count(e => e is FrameEvent));
+        Assert.Equal(frames, _events.Count(e => e is FrameEvent));
     }
 
     [Fact]
@@ -482,7 +503,7 @@ public class PreviewSessionTests : IDisposable
         _session.Execute(new PointerCommand { Kind = "up", Column = 2, Row = 0 });
         _session.Execute(new TextCommand { Text = "hi" });
 
-        Assert.Contains("hi", FrameText(LastFrame()));
+        Assert.Contains("hi", FrameText());
     }
 
     [Fact]
@@ -492,13 +513,12 @@ public class PreviewSessionTests : IDisposable
         Load($"""<StackPanel {Xmlns}><Button Content="tiered"/><TextBlock Text="palette"/></StackPanel>""");
 
         var allowed = Enumerable.Range(0, 16).Select(i => XtermPalette.ToHex((byte)i)).ToHashSet();
-        var frame = LastFrame();
-        Assert.All(frame.Styles, s =>
+        Assert.All(Fold().Lines.SelectMany(r => r), run =>
         {
-            if (s.Fg is not null)
-                Assert.Contains(s.Fg, allowed);
-            if (s.Bg is not null)
-                Assert.Contains(s.Bg, allowed);
+            if (run.Style.Fg is not null)
+                Assert.Contains(run.Style.Fg, allowed);
+            if (run.Style.Bg is not null)
+                Assert.Contains(run.Style.Bg, allowed);
         });
     }
 
@@ -508,7 +528,7 @@ public class PreviewSessionTests : IDisposable
         Initialize();
         Load($"""<Window {Xmlns} Width="40" Height="10"><TextBlock Text="windowed"/></Window>""");
 
-        Assert.Contains("windowed", FrameText(LastFrame()));
+        Assert.Contains("windowed", FrameText());
     }
 
     [Fact]
@@ -521,17 +541,17 @@ public class PreviewSessionTests : IDisposable
         // clear on the up — not flash for a single frame like a synthesized press.
         _session.Execute(new PointerCommand { Kind = "down", Column = 2, Row = 0 });
         _session.Execute(new PointerCommand { Kind = "up", Column = 2, Row = 0 });
-        var idle = LastFrame();
+        var idle = FrameStyleSignature();
 
         _session.Execute(new KeyCommand { Key = "Space", Kind = "down" });
-        var held = LastFrame();
-        Assert.NotEqual(FrameStyleSignature(idle), FrameStyleSignature(held));
+        var held = FrameStyleSignature();
+        Assert.NotEqual(idle, held);
 
         _session.Execute(new KeyCommand { Key = "Space", Kind = "down" }); // auto-repeat: stays pressed, no error
-        Assert.Equal(FrameStyleSignature(held), FrameStyleSignature(LastFrame()));
+        Assert.Equal(held, FrameStyleSignature());
 
         _session.Execute(new KeyCommand { Key = "Space", Kind = "up" });
-        Assert.Equal(FrameStyleSignature(idle), FrameStyleSignature(LastFrame()));
+        Assert.Equal(idle, FrameStyleSignature());
         Assert.DoesNotContain(_events, e => e is ErrorEvent);
     }
 
@@ -559,7 +579,7 @@ public class PreviewSessionTests : IDisposable
         Assert.Empty(diagnostics.Items);
 
         // d:DataContext constructed the viewmodel, so the binding renders real design data.
-        Assert.Contains("Hello from design data", FrameText(LastFrame()));
+        Assert.Contains("Hello from design data", FrameText());
 
         // d:DesignWidth/Height constrain the root: hit the surface center and read the
         // outermost user element's bounds (the chrome container is never reported).
@@ -586,7 +606,7 @@ public class PreviewSessionTests : IDisposable
 
         var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
         Assert.Empty(diagnostics.Items);
-        Assert.Contains("Save", FrameText(LastFrame()));
+        Assert.Contains("Save", FrameText());
     }
 
     [Fact]
@@ -597,26 +617,26 @@ public class PreviewSessionTests : IDisposable
 
         // The theme may use underline of its own, so assert on the *count* of underlined cells:
         // the access-key cue must add underlines on Alt down and remove them on Alt up.
-        static int UnderlinedCells(FrameEvent frame)
-            => frame.Lines.Sum(runs => runs.Where(r => frame.Styles[r.StyleIndex].Attrs?.Contains("underline") == true).Sum(r => r.Width));
+        int UnderlinedCells()
+            => Fold().Lines.Sum(runs => runs.Where(r => r.Style.Attrs?.Contains("underline") == true).Sum(r => r.Width));
 
-        var idle = UnderlinedCells(LastFrame());
+        var idle = UnderlinedCells();
 
         _session.Execute(new KeyCommand { Key = "Alt", Kind = "down" });
-        Assert.True(UnderlinedCells(LastFrame()) > idle); // the access-key cue underlines the C
+        Assert.True(UnderlinedCells() > idle); // the access-key cue underlines the C
 
         // WPF-style semantics: releasing Alt without a letter LATCHES the cue (menu mode) …
         _session.Execute(new KeyCommand { Key = "Alt", Kind = "up" });
-        Assert.True(UnderlinedCells(LastFrame()) > idle);
+        Assert.True(UnderlinedCells() > idle);
 
         // … and Escape exits it.
         _session.Execute(new KeyCommand { Key = "Escape" });
-        Assert.Equal(idle, UnderlinedCells(LastFrame()));
+        Assert.Equal(idle, UnderlinedCells());
         Assert.DoesNotContain(_events, e => e is ErrorEvent);
     }
 
-    private static string FrameStyleSignature(FrameEvent frame)
-        => string.Join('|', frame.Lines.Select(runs => string.Join(',', runs.Select(r => $"{r.Text}:{frame.Styles[r.StyleIndex].Fg}/{frame.Styles[r.StyleIndex].Bg}"))));
+    private string FrameStyleSignature()
+        => string.Join('|', Fold().Lines.Select(runs => string.Join(',', runs.Select(r => $"{r.Text}:{r.Style.Fg}/{r.Style.Bg}"))));
 
     [Fact]
     public void Pointer_click_reaches_the_content()
@@ -627,13 +647,13 @@ public class PreviewSessionTests : IDisposable
                   <CheckBox x:Name="Toggle" Content="Toggle me"/>
               </StackPanel>
               """);
-        var before = FrameText(LastFrame());
+        var before = FrameText();
 
         // Click the checkbox glyph area, then verify the frame changed (checked state).
         _session.Execute(new PointerCommand { Kind = "down", Column = 1, Row = 0 });
         _session.Execute(new PointerCommand { Kind = "up", Column = 1, Row = 0 });
 
-        var after = FrameText(LastFrame());
+        var after = FrameText();
         Assert.NotEqual(before, after);
     }
 }

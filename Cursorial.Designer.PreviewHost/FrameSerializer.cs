@@ -78,6 +78,91 @@ internal static class FrameSerializer
         };
     }
 
+    /// <summary>
+    /// The event to emit for <paramref name="next"/> given the previously emitted
+    /// <paramref name="last"/>: the full frame when there is no baseline or the dimensions
+    /// changed, a row-level delta when some rows (or the cursor) differ, or null when nothing
+    /// changed at all — play-mode ticks and pointer moves over static content cost nothing.
+    /// </summary>
+    internal static FrameEvent? MakeDelta(FrameEvent? last, FrameEvent next)
+    {
+        if (last is null || last.Columns != next.Columns || last.Rows != next.Rows)
+            return next;
+
+        var changedRows = new List<int>();
+        for (var row = 0; row < next.Lines.Count; row++)
+        {
+            if (!RowsEqual(last, next, row))
+                changedRows.Add(row);
+        }
+
+        var cursorChanged = !CursorsEqual(last.Cursor, next.Cursor);
+        if (changedRows.Count == 0 && !cursorChanged)
+            return null;
+
+        // A local style table holding only what the changed rows reference.
+        var styles = new List<StyleInfo>();
+        var remap = new Dictionary<int, int>();
+        var changed = new List<ChangedRowInfo>(changedRows.Count);
+        foreach (var row in changedRows)
+        {
+            var runs = new List<Protocol.TextRun>();
+            foreach (var run in next.Lines[row])
+            {
+                if (!remap.TryGetValue(run.StyleIndex, out var mapped))
+                {
+                    mapped = styles.Count;
+                    styles.Add(next.Styles[run.StyleIndex]);
+                    remap[run.StyleIndex] = mapped;
+                }
+
+                runs.Add(new Protocol.TextRun { Text = run.Text, StyleIndex = mapped, Width = run.Width });
+            }
+
+            changed.Add(new ChangedRowInfo { Index = row, Runs = runs });
+        }
+
+        return new FrameEvent
+        {
+            Columns = next.Columns,
+            Rows = next.Rows,
+            Cursor = next.Cursor,
+            Styles = styles,
+            Lines = [],
+            Delta = true,
+            Changed = changed,
+        };
+    }
+
+    private static bool RowsEqual(FrameEvent last, FrameEvent next, int row)
+    {
+        var a = last.Lines[row];
+        var b = next.Lines[row];
+        if (a.Count != b.Count)
+            return false;
+
+        for (var i = 0; i < a.Count; i++)
+        {
+            if (a[i].Text != b[i].Text || a[i].Width != b[i].Width)
+                return false;
+            if (!StylesEqual(last.Styles[a[i].StyleIndex], next.Styles[b[i].StyleIndex]))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool StylesEqual(StyleInfo a, StyleInfo b)
+        => a.Fg == b.Fg
+           && a.Bg == b.Bg
+           && a.Underline == b.Underline
+           && a.UnderlineColor == b.UnderlineColor
+           && a.Link == b.Link
+           && (a.Attrs ?? []).SequenceEqual(b.Attrs ?? []);
+
+    private static bool CursorsEqual(CursorInfo a, CursorInfo b)
+        => a.Row == b.Row && a.Column == b.Column && a.Visible == b.Visible && a.Shape == b.Shape;
+
     private static int GetStyleIndex(in Style style, StyleQuantizer? quantizer, List<StyleInfo> styles, Dictionary<Style, int> indices)
     {
         // Dedup on the raw style, quantize once per unique entry.

@@ -197,8 +197,19 @@ data class FrameEvent(
     val rows: Int,
     val cursor: CursorInfo?,
     val styles: List<StyleDefinition>,
+    /** Empty on delta frames. */
     val lines: List<List<Run>>,
+    /** True = row-level delta: only [changed] rows differ; style indices reference THIS event's [styles]. */
+    val delta: Boolean? = null,
+    val changed: List<ChangedRow>? = null,
 ) : PreviewerEvent
+
+/** One changed row of a delta frame. */
+data class ChangedRow(
+    /** 0-based row index. */
+    val i: Int,
+    val runs: List<Run>,
+)
 
 data class CursorInfo(
     val row: Int,

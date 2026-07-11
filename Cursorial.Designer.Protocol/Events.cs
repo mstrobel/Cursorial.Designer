@@ -48,8 +48,28 @@ public sealed class FrameEvent : PreviewEvent
     /// <summary>The frame's deduplicated style table, referenced by <see cref="TextRun.StyleIndex"/>.</summary>
     public required IReadOnlyList<StyleInfo> Styles { get; init; }
 
-    /// <summary>One entry per row, top to bottom; each row is its runs, left to right.</summary>
+    /// <summary>One entry per row, top to bottom; each row is its runs, left to right. Empty on delta frames.</summary>
     public required IReadOnlyList<IReadOnlyList<TextRun>> Lines { get; init; }
+
+    /// <summary>
+    /// True when this is a row-level DELTA against the previously emitted frame: only
+    /// <see cref="Changed"/> rows differ (style indices reference THIS event's
+    /// <see cref="Styles"/> table). Unchanged frames are not emitted at all.
+    /// </summary>
+    public bool? Delta { get; init; }
+
+    /// <summary>The changed rows of a delta frame.</summary>
+    public IReadOnlyList<ChangedRowInfo>? Changed { get; init; }
+}
+
+/// <summary>One changed row of a delta frame.</summary>
+public sealed class ChangedRowInfo
+{
+    /// <summary>0-based row index.</summary>
+    [System.Text.Json.Serialization.JsonPropertyName("i")]
+    public required int Index { get; init; }
+
+    public required IReadOnlyList<TextRun> Runs { get; init; }
 }
 
 /// <summary>Parse/load diagnostics for the most recent <c>loadXaml</c>. Always emitted, even when empty.</summary>

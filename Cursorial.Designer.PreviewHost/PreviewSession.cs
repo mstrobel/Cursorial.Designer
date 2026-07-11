@@ -43,6 +43,10 @@ internal sealed class PreviewSession : IDisposable
     private UITestHost? _host;
     private StyleQuantizer? _quantizer;
 
+    // The last emitted frame's full content, for no-change suppression and row-level deltas.
+    // Play-mode ticks and pointer moves over static content cost nothing on the wire.
+    private FrameEvent? _lastFrame;
+
     // The URI of the currently loaded document — the reference point for ElementRef.InDocument
     // (an element span from this URI supports direct caret sync; a foreign span is template
     // content from another document).
@@ -770,6 +774,10 @@ internal sealed class PreviewSession : IDisposable
         if (_host is not { } host)
             return;
 
-        _emit(FrameSerializer.Serialize(host.FrameBuffer, _quantizer));
+        var frame = FrameSerializer.Serialize(host.FrameBuffer, _quantizer);
+        var delta = FrameSerializer.MakeDelta(_lastFrame, frame);
+        _lastFrame = frame;
+        if (delta is not null)
+            _emit(delta);
     }
 }

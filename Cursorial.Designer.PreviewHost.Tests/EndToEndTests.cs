@@ -64,8 +64,11 @@ public class EndToEndTests
             var diagnostics = Assert.IsType<DiagnosticsEvent>(await NextEvent());
             Assert.Empty(diagnostics.Items);
 
+            // After initialize's full frame, the load emits a row-level DELTA (same dimensions).
             var frame = Assert.IsType<FrameEvent>(await NextEvent());
-            var text = string.Join('\n', frame.Lines.Select(runs => string.Concat(runs.Select(r => r.Text))));
+            var text = frame.Delta == true
+                ? string.Join('\n', (frame.Changed ?? []).Select(c => string.Concat(c.Runs.Select(r => r.Text))))
+                : string.Join('\n', frame.Lines.Select(runs => string.Concat(runs.Select(r => r.Text))));
             Assert.Contains("stdio works", text);
 
             // A malformed line must produce an error event without killing the session.

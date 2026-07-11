@@ -7,6 +7,7 @@ import dev.cursorial.designer.protocol.CellRect
 import dev.cursorial.designer.protocol.FrameEvent
 import dev.cursorial.designer.protocol.PointerButton
 import dev.cursorial.designer.protocol.PointerKind
+import dev.cursorial.designer.protocol.Run
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
@@ -54,8 +55,12 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
     /** Called in select mode for '[' (outward = true, toward the root) and ']' (inward). */
     var treeWalkListener: ((outward: Boolean) -> Unit)? = null
 
-    private var frame: FrameEvent? = null
-    private var resolvedStyles: List<ResolvedStyle> = emptyList()
+    // The current screen state as resolved rows — full frames replace it, delta frames patch
+    // individual rows (each frame event carries its own style table, so runs resolve at ingest).
+    private var gridColumns = 0
+    private var gridRows = 0
+    private var rowRuns: MutableList<List<ResolvedRun>> = mutableListOf()
+    private var cursor: dev.cursorial.designer.protocol.CursorInfo? = null
     private var selection: CellRect? = null
 
     private var lastNotifiedColumns = -1
@@ -170,16 +175,38 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
     // Model updates
     // ------------------------------------------------------------------
 
-    /** Replaces the displayed frame. EDT only. */
+    /** Applies a frame — a full replacement or a row-level delta. EDT only. */
     fun render(newFrame: FrameEvent) {
-        frame = newFrame
-        resolvedStyles = newFrame.styles.map { style ->
+        val resolved = newFrame.styles.map { style ->
             ResolvedStyle(
                 fg = parseColor(style.fg),
                 bg = parseColor(style.bg),
                 attrs = StyleAttrs.of(style.attrs),
             )
         }
+
+        fun resolveRuns(runs: List<Run>): List<ResolvedRun> =
+            runs.map { ResolvedRun(it.t, it.w, resolved.getOrNull(it.s)) }
+
+        if (newFrame.delta == true) {
+            val metrics = cellMetrics()
+            val previousCursorRow = cursor?.row
+            for (change in newFrame.changed.orEmpty()) {
+                if (change.i in rowRuns.indices) {
+                    rowRuns[change.i] = resolveRuns(change.runs)
+                    repaint(0, change.i * metrics.cellHeight, width, metrics.cellHeight)
+                }
+            }
+            cursor = newFrame.cursor
+            for (row in listOfNotNull(previousCursorRow, cursor?.row))
+                repaint(0, row * metrics.cellHeight, width, metrics.cellHeight)
+            return
+        }
+
+        gridColumns = newFrame.columns
+        gridRows = newFrame.rows
+        rowRuns = newFrame.lines.map(::resolveRuns).toMutableList()
+        cursor = newFrame.cursor
         revalidate()
         repaint()
     }
@@ -238,16 +265,16 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
             g2.color = defaultBg
             g2.fillRect(0, 0, width, height)
 
-            val frame = frame ?: return
+            if (rowRuns.isEmpty()) return
             val metrics = cellMetrics()
             val cw = metrics.cellWidth
             val ch = metrics.cellHeight
 
-            for ((rowIndex, runs) in frame.lines.withIndex()) {
+            for ((rowIndex, runs) in rowRuns.withIndex()) {
                 val y = rowIndex * ch
                 var column = 0
                 for (run in runs) {
-                    val style = resolvedStyles.getOrNull(run.s)
+                    val style = run.style
                     val attrs = style?.attrs ?: StyleAttrs.NONE
 
                     var fg = style?.fg ?: defaultFg
@@ -262,7 +289,7 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
                     }
 
                     val x = column * cw
-                    val runWidthPx = run.w * cw
+                    val runWidthPx = run.width * cw
 
                     if (bg != defaultBg || attrs.reverse) {
                         g2.color = bg
@@ -271,7 +298,7 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
 
                     g2.color = fg
                     g2.font = metrics.font(attrs.bold, attrs.italic)
-                    g2.drawString(run.t, x, y + metrics.ascent)
+                    g2.drawString(run.text, x, y + metrics.ascent)
 
                     if (attrs.underline) {
                         val underlineY = y + metrics.ascent + 1
@@ -282,19 +309,19 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
                         g2.drawLine(x, strikeY, x + runWidthPx - 1, strikeY)
                     }
 
-                    column += run.w
+                    column += run.width
                 }
             }
 
-            paintCursor(g2, frame, metrics, defaultFg)
+            paintCursor(g2, metrics, defaultFg)
             paintSelection(g2, metrics)
         } finally {
             g2.dispose()
         }
     }
 
-    private fun paintCursor(g2: Graphics2D, frame: FrameEvent, metrics: CellMetrics, defaultFg: Color) {
-        val cursor = frame.cursor ?: return
+    private fun paintCursor(g2: Graphics2D, metrics: CellMetrics, defaultFg: Color) {
+        val cursor = cursor ?: return
         if (!cursor.visible) return
 
         val x = cursor.column * metrics.cellWidth
@@ -323,12 +350,10 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
     }
 
     override fun getPreferredSize(): Dimension {
-        val frame = frame ?: return Dimension(
-            DEFAULT_COLUMNS * cellMetrics().cellWidth,
-            DEFAULT_ROWS * cellMetrics().cellHeight,
-        )
         val metrics = cellMetrics()
-        return Dimension(frame.columns * metrics.cellWidth, frame.rows * metrics.cellHeight)
+        if (gridColumns <= 0 || gridRows <= 0)
+            return Dimension(DEFAULT_COLUMNS * metrics.cellWidth, DEFAULT_ROWS * metrics.cellHeight)
+        return Dimension(gridColumns * metrics.cellWidth, gridRows * metrics.cellHeight)
     }
 
     // ------------------------------------------------------------------
@@ -432,6 +457,13 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
             else -> plain
         }
     }
+
+    /** One run of the cached screen state, style resolved at ingest. */
+    private data class ResolvedRun(
+        val text: String,
+        val width: Int,
+        val style: ResolvedStyle?,
+    )
 
     private data class ResolvedStyle(
         /** null = terminal default (theme foreground). */

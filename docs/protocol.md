@@ -89,6 +89,15 @@ exits on Escape — WPF-style.
 {"type":"log","level":"debug|info|warn|error","message":"…"}
 ```
 
+### Delta frames and suppression
+
+An unchanged frame is **not emitted at all** — play-mode `advanceTime` ticks and pointer moves
+over static content cost nothing on the wire. When some rows changed and the dimensions did
+not, the host emits a **row-level delta**: `"delta": true`, `lines` empty, and `changed` carrying
+`{"i": rowIndex, "runs": […]}` entries whose style indices reference *this* event's `styles`
+table. A full frame (no `delta` member) is sent on the first emission and whenever dimensions
+change; it fully replaces the client's cached state.
+
 ### Frame encoding
 
 Cell content is run-length encoded per row. `lines` has exactly `rows` entries (top to bottom);
