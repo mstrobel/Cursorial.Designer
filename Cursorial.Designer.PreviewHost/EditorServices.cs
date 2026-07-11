@@ -56,14 +56,22 @@ internal static partial class EditorServices
     private static partial Regex NonMarkupRegion();
 
     /// <summary>
-    /// Comments, CDATA sections, and processing instructions replaced by spaces (offsets
-    /// preserved) so the textual scanners never read markup out of non-markup regions — a
-    /// commented-out tag must not become the "parent element" and a comment above the root must
-    /// not become the "root tag". Unterminated regions (routine mid-edit) blank to end of text,
-    /// which also makes a caret inside one detect as no completion context.
+    /// Comments, CDATA sections, and processing instructions replaced by spaces — offsets AND
+    /// line structure preserved (newlines survive; blanking a multi-line comment must not shift
+    /// every subsequent line number for consumers that compute positions over the blanked text,
+    /// e.g. in-document definition targets). The textual scanners never read markup out of
+    /// non-markup regions — a commented-out tag must not become the "parent element" and a
+    /// comment above the root must not become the "root tag". Unterminated regions (routine
+    /// mid-edit) blank to end of text, which also makes a caret inside one detect as no
+    /// completion context.
     /// </summary>
     internal static string BlankNonMarkup(string xaml)
-        => NonMarkupRegion().Replace(xaml, static m => new string(' ', m.Length));
+        => NonMarkupRegion().Replace(xaml, static m =>
+            string.Create(m.Length, m.Value, static (span, value) =>
+            {
+                for (var i = 0; i < span.Length; i++)
+                    span[i] = value[i] is '\n' or '\r' ? value[i] : ' ';
+            }));
 
     internal enum ContextKind
     {

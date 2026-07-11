@@ -514,6 +514,27 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Definition_targets_survive_multiline_comments_above()
+    {
+        // BlankNonMarkup must preserve newlines: a multi-line comment above the target used to
+        // shift every subsequent line number for in-document locations (the Shell.xaml ^ bug).
+        var xaml = $"<StackPanel {Xmlns}>\n" +
+                   "    <!-- a\n       multi-line\n       comment -->\n" +
+                   "    <Style Selector=\"Button.accent\">\n" +
+                   "      <Style.Children>\n" +
+                   "        <Style Selector=\"^:pointerover\"/>\n" +
+                   "      </Style.Children>\n" +
+                   "    </Style>\n</StackPanel>";
+        var line7 = "        <Style Selector=\"^:pointerover\"/>";
+        var column = line7.IndexOf('^') + 1;
+        _session.Execute(new DefinitionCommand { Id = 95, Xaml = xaml, Line = 7, Column = column, FilePath = "/tmp/View.xaml" });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal("/tmp/View.xaml", definition.File);
+        Assert.Equal(5, definition.Line); // the parent Style — NOT shifted by the comment's newlines
+    }
+
+    [Fact]
     public void Hover_resolves_plain_enum_values()
     {
         var xaml = $"<StackPanel {Xmlns}>\n    <Button Visibility=\"Hidden\"/>\n</StackPanel>";
