@@ -268,7 +268,11 @@ class CursorialPreviewEditor(
                 is dev.cursorial.designer.protocol.CompletionsEvent,
                 is dev.cursorial.designer.protocol.HoverInfoEvent,
                 is dev.cursorial.designer.protocol.DefinitionEvent -> {} // language-service replies; not for preview editors
-                is ErrorEvent -> onEdt { statusLabel.text = "Previewer error: ${event.message}" }
+                is ErrorEvent -> onEdt {
+                    logger.warn("Previewer error: ${event.message}${event.detail?.let { "\n$it" } ?: ""}")
+                    statusLabel.text = "Previewer error: ${event.message}"
+                    event.detail?.let { statusLabel.toolTipText = "<html><pre>${it.take(2000)}</pre></html>" }
+                }
                 is LogEvent -> logger.info("PreviewHost [${event.level}]: ${event.message}")
                 is UnknownEvent -> logger.warn("Unknown event type \"${event.type}\" from preview host")
             }
@@ -379,11 +383,19 @@ class CursorialPreviewEditor(
      * keystroke, so typing cannot jitter the pane.
      */
     private fun showDiagnostics(event: DiagnosticsEvent) {
-        val errors = event.items.count { it.severity == "error" }
-        if (errors == lastErrorCount) return
-        lastErrorCount = errors
-        statusLabel.text = if (errors == 0) " "
-            else "⚠ $errors problem${if (errors == 1) "" else "s"} — preview shows the last good state"
+        val errors = event.items.filter { it.severity == "error" }
+        for (item in errors)
+            logger.warn("Preview load problem: ${item.code} @${item.line}:${item.column} ${item.message}")
+
+        if (errors.size == lastErrorCount) return
+        lastErrorCount = errors.size
+        statusLabel.text = if (errors.isEmpty()) " "
+            else "⚠ ${errors.size} problem${if (errors.size == 1) "" else "s"} — preview shows the last good state"
+        // Runtime problems (instantiation, layout) exist only on the PREVIEW path — the
+        // annotator never instantiates, so they can't reach the Problems view. The strip's
+        // tooltip is where their details live.
+        statusLabel.toolTipText = if (errors.isEmpty()) null
+            else "<html>" + errors.joinToString("<br>") { "${it.code} @${it.line}:${it.column} ${it.message}" } + "</html>"
     }
 
     private fun showHitTestResult(event: HitTestResultEvent) {

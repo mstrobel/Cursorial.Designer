@@ -470,6 +470,8 @@ data class StyleFrameItem(
 data class ErrorEvent(
     val replyTo: Int?,
     val message: String?,
+    /** Typically an exception ToString — for logs/tooltips, not end-user display. */
+    val detail: String? = null,
 ) : PreviewerEvent
 
 data class LogEvent(
