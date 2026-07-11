@@ -13,10 +13,13 @@ import dev.cursorial.designer.protocol.DiagnosticsEvent
  * pass (the ExternalAnnotator contract — runs after typing settles, off the EDT) and annotates
  * the editor with the parser's positioned diagnostics, did-you-mean suggestions included.
  */
-class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAnnotator.Source, DiagnosticsEvent?>() {
+class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAnnotator.Source, CursorialXamlExternalAnnotator.Result?>() {
 
     /** The document snapshot captured on the EDT before the background run. */
     data class Source(val file: PsiFile, val text: String)
+
+    /** Diagnostics paired with the snapshot they were computed against. */
+    data class Result(val source: Source, val diagnostics: DiagnosticsEvent)
 
     override fun collectInformation(file: PsiFile): Source? {
         val virtualFile = file.virtualFile ?: return null
@@ -24,15 +27,20 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
         return Source(file, file.text)
     }
 
-    override fun doAnnotate(collected: Source?): DiagnosticsEvent? {
+    override fun doAnnotate(collected: Source?): Result? {
         val source = collected ?: return null
-        return CursorialLanguageService.getInstance(source.file.project)
-            .analyze(source.text, source.file.virtualFile?.url, source.file.virtualFile)
+        val diagnostics = CursorialLanguageService.getInstance(source.file.project)
+            .analyze(source.text, source.file.virtualFile?.url, source.file.virtualFile) ?: return null
+        return Result(source, diagnostics)
     }
 
-    override fun apply(file: PsiFile, annotationResult: DiagnosticsEvent?, holder: AnnotationHolder) {
-        val result = annotationResult ?: return
-        val text = file.text
+    override fun apply(file: PsiFile, annotationResult: Result?, holder: AnnotationHolder) {
+        val result = annotationResult?.diagnostics ?: return
+
+        // An edit may have slipped in during doAnnotate; positions computed against the old
+        // snapshot would land on shifted text. Bail — the daemon reruns on the fresh document.
+        val text = annotationResult.source.text
+        if (text != file.text) return
 
         for (item in result.items) {
             val start = offsetOf(text, item.line, item.column) ?: continue

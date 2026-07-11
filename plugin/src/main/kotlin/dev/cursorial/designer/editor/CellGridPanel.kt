@@ -393,7 +393,8 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
         val metrics = cellMetrics()
         val column = e.x / metrics.cellWidth
         val row = e.y / metrics.cellHeight
-        if (column < 0 || row < 0) return null
+        // Viewport slack around the grid is not a cell; don't send out-of-range positions.
+        if (column < 0 || row < 0 || column >= gridColumns || row >= gridRows) return null
         return column to row
     }
 

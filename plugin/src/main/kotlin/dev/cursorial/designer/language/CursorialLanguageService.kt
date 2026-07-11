@@ -15,9 +15,11 @@ import dev.cursorial.designer.protocol.CompletionsEvent
 import dev.cursorial.designer.protocol.DiagnosticsEvent
 import dev.cursorial.designer.protocol.ErrorEvent
 import dev.cursorial.designer.protocol.PreviewerEvent
+import com.intellij.openapi.progress.ProgressManager
 import dev.cursorial.designer.settings.CursorialDesignerSettings
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
@@ -89,11 +91,29 @@ class CursorialLanguageService(private val project: Project) : Disposable {
             pending.remove(id)
             return null
         }
-        return try {
-            future.get(timeoutMs, TimeUnit.MILLISECONDS)
-        } catch (_: Exception) {
+
+        // Poll in short slices instead of one hard get(): completion calls this inside a
+        // cancellable read action, and a blocked read action stalls every queued write action —
+        // i.e. typing freezes until the host answers or the timeout lapses. checkCanceled() lets
+        // the platform abort us the moment a write action needs the lock (a no-op when no
+        // progress indicator is active, so other callers lose nothing).
+        val deadline = System.currentTimeMillis() + timeoutMs
+        try {
+            while (true) {
+                ProgressManager.checkCanceled()
+                try {
+                    return future.get(25, TimeUnit.MILLISECONDS)
+                } catch (_: TimeoutException) {
+                    if (System.currentTimeMillis() >= deadline) return null
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return null
+                } catch (_: ExecutionException) {
+                    return null
+                }
+            }
+        } finally {
             pending.remove(id)
-            null
         }
     }
 

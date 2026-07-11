@@ -292,4 +292,94 @@ public class EditorServiceTests : IDisposable
         Assert.Contains(completions.Items, i => i.Text == "OneWay");
         Assert.Contains(completions.Items, i => i.Text == "TwoWay");
     }
+
+    [Fact]
+    public void Complete_ignores_commented_out_markup()
+    {
+        // A comment above the root must not become the "root tag" (its xmlns would poison the
+        // namespace map), and a commented-out tag must not become the parent element.
+        var xaml = "<!-- TODO: replace <OldRoot xmlns=\"https://nowhere\"> -->\n" +
+                   $"<DockPanel {Xmlns}>\n" +
+                   "    <!-- <Grid> -->\n" +
+                   "    <Button Do\n</DockPanel>";
+        _session.Execute(new CompleteCommand { Id = 71, Xaml = xaml, Line = 4, Column = 15 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Detail: "attached" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Grid.Row");
+    }
+
+    [Fact]
+    public void Complete_at_document_start_returns_empty_not_error()
+    {
+        _session.Execute(new CompleteCommand { Id = 72, Xaml = $"<StackPanel {Xmlns}/>", Line = 1, Column = 1 });
+
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Empty(completions.Items);
+    }
+
+    [Fact]
+    public void Complete_offers_attributes_after_a_value_containing_gt()
+    {
+        // A raw '>' inside an attribute value is legal XML and must not read as the tag's close.
+        var xaml = $"<StackPanel {Xmlns}>\n    <TextBlock Text=\"a > b\" Vi\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 73, Xaml = xaml, Line = 2, Column = 31 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Visibility", Kind: "attribute" });
+    }
+
+    [Fact]
+    public void Complete_walks_dotted_paths_in_named_binding_path_form()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = "<StackPanel " + Xmlns +
+                   " xmlns:d=\"http://schemas.microsoft.com/expression/blend/2008\"" +
+                   $" xmlns:t=\"{ns}\" d:DataContext=\"t:DesignViewModel\">\n" +
+                   "    <TextBlock Text=\"{Binding Path=Greeting.\n</StackPanel>";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 74,
+            Xaml = xaml,
+            Line = 2,
+            Column = 45,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        // Path=Greeting. walks into String like the positional form — not the root properties.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Length", Detail: "Int32" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Greeting");
+    }
+
+    [Fact]
+    public void Complete_x_reference_offers_unprefixed_name_attributes()
+    {
+        // UIElement.Name is a plain CLR property: Name="…" (no x: prefix) names an element too.
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Name=\"okButton\"/>\n    <TextBlock Text=\"{{x:Reference \n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 75, Xaml = xaml, Line = 3, Column = 35 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "okButton");
+    }
+
+    [Fact]
+    public void Analyze_with_unloadable_assembly_still_replies_with_diagnostics()
+    {
+        _session.Execute(new AnalyzeCommand
+        {
+            Id = 76,
+            Xaml = $"<StackPanel {Xmlns}/>",
+            Assemblies = ["/nonexistent/Not.There.dll"],
+        });
+
+        // The load failure is advisory (a warn log) and NEVER an ErrorEvent carrying the
+        // command's reply id — that would satisfy the IDE's pending request first and the real
+        // reply would find nobody waiting.
+        Assert.DoesNotContain(_events, e => e is ErrorEvent { ReplyTo: 76 });
+        Assert.Contains(_events, e => e is LogEvent { Level: "warn" } log && log.Message.Contains("Not.There.dll"));
+        var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
+        Assert.Equal(76, diagnostics.ReplyTo);
+    }
 }

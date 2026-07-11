@@ -372,8 +372,12 @@ internal sealed class PreviewSession : IDisposable
             }
             catch (Exception ex)
             {
+                // Advisory only, and NEVER with the command's reply id: the real reply follows on
+                // the same id, and an error here would satisfy the IDE's pending request first —
+                // dropping the actual completions/diagnostics. Removing from the set retries the
+                // load next request (a dll mid-rewrite during a build self-heals).
                 _registeredAssemblies.Remove(path);
-                _emit(new ErrorEvent { ReplyTo = replyTo, Message = $"Failed to load assembly '{path}'.", Detail = ex.Message });
+                _emit(new LogEvent { Level = "warn", Message = $"Failed to load assembly '{path}': {ex.Message}" });
             }
         }
     }

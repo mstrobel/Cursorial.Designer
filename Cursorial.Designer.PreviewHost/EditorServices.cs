@@ -26,8 +26,9 @@ internal static partial class EditorServices
     internal static Dictionary<string, string> ScanNamespaces(string xaml)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        xaml = BlankNonMarkup(xaml);
 
-        // Find the first real element tag (skip the XML declaration and comments).
+        // Find the first real element tag (the XML declaration and comments are blanked).
         var start = 0;
         while (start < xaml.Length)
         {
@@ -50,6 +51,19 @@ internal static partial class EditorServices
 
         return map;
     }
+
+    [GeneratedRegex("<!--.*?(?:-->|$)|<!\\[CDATA\\[.*?(?:]]>|$)|<\\?.*?(?:\\?>|$)", RegexOptions.Singleline)]
+    private static partial Regex NonMarkupRegion();
+
+    /// <summary>
+    /// Comments, CDATA sections, and processing instructions replaced by spaces (offsets
+    /// preserved) so the textual scanners never read markup out of non-markup regions — a
+    /// commented-out tag must not become the "parent element" and a comment above the root must
+    /// not become the "root tag". Unterminated regions (routine mid-edit) blank to end of text,
+    /// which also makes a caret inside one detect as no completion context.
+    /// </summary>
+    internal static string BlankNonMarkup(string xaml)
+        => NonMarkupRegion().Replace(xaml, static m => new string(' ', m.Length));
 
     internal enum ContextKind
     {
@@ -76,7 +90,7 @@ internal static partial class EditorServices
     internal static string? FindParentElement(string xaml, int beforeOffset)
     {
         var stack = new Stack<string>();
-        foreach (Match match in TagToken().Matches(xaml[..Math.Clamp(beforeOffset, 0, xaml.Length)]))
+        foreach (Match match in TagToken().Matches(BlankNonMarkup(xaml[..Math.Clamp(beforeOffset, 0, xaml.Length)])))
         {
             var closing = match.Groups[1].Value.Length > 0;
             var selfClosed = match.Groups[4].Value.Length > 0;
@@ -101,13 +115,21 @@ internal static partial class EditorServices
     internal static CompletionContext Detect(string xaml, int offset)
     {
         offset = Math.Clamp(offset, 0, xaml.Length);
+        xaml = BlankNonMarkup(xaml);
         var open = xaml.LastIndexOf('<', Math.Max(0, offset - 1));
-        if (open < 0)
-            return new CompletionContext(ContextKind.None, "", "", "");
+        if (open < 0 || open >= offset)
+            return new CompletionContext(ContextKind.None, "", "", ""); // no tag, or caret at/before '<'
 
-        var close = xaml.LastIndexOf('>', Math.Max(0, offset - 1));
-        if (close > open)
-            return new CompletionContext(ContextKind.None, "", "", ""); // between tags
+        // Between tags? Scan forward from the open honoring quotes — a raw '>' inside an
+        // attribute value (legal XML) is not the tag's close.
+        var quoted = false;
+        for (var i = open + 1; i < offset; i++)
+        {
+            if (xaml[i] == '"')
+                quoted = !quoted;
+            else if (xaml[i] == '>' && !quoted)
+                return new CompletionContext(ContextKind.None, "", "", ""); // between tags
+        }
 
         var segment = xaml[(open + 1)..offset];
         if (segment.StartsWith('/'))
@@ -151,6 +173,7 @@ internal static partial class EditorServices
     internal static List<CompletionItemInfo> Complete(string xaml, int line, int column)
     {
         var offset = OffsetOf(xaml, line, column);
+        xaml = BlankNonMarkup(xaml); // document sweeps (x:Key, Name, d:DataContext) skip comments too
         var context = Detect(xaml, offset);
         var namespaces = ScanNamespaces(xaml);
         var provider = XamlLoaderOptions.DefaultMetadataProvider;
@@ -198,7 +221,7 @@ internal static partial class EditorServices
                     var clrNamespace = provider.GetClrNamespaces(uri).FirstOrDefault();
                     foreach (var name in provider.GetKnownTypeNames(uri))
                     {
-                        var candidate = provider.TryGetType(uri, name).Type;
+                        var candidate = SafeResolve(provider, uri, name);
                         var clr = candidate?.ClrType.UnderlyingSystemType;
                         if (candidate is null || !IsInstantiable(candidate, clr))
                             continue;
@@ -382,7 +405,25 @@ internal static partial class EditorServices
         if (localName.Contains('.'))
             return null; // property elements aren't completable targets here
 
-        return namespaces.TryGetValue(prefix, out var uri) ? provider.TryGetType(uri, localName).Type : null;
+        return namespaces.TryGetValue(prefix, out var uri) ? SafeResolve(provider, uri, localName) : null;
+    }
+
+    /// <summary>
+    /// <see cref="IXamlTypeMetadataProvider.TryGetType"/> that swallows resolution failures:
+    /// resolving a candidate runs its static constructors, and one user cctor that throws in the
+    /// headless host (no terminal, no application state) must not abort the whole request —
+    /// it would kill completion for the entire namespace, permanently (failed cctors rethrow).
+    /// </summary>
+    private static XamlType? SafeResolve(IXamlTypeMetadataProvider provider, string uri, string name)
+    {
+        try
+        {
+            return provider.TryGetType(uri, name).Type;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static Type? ResolveAttributeValueType(in CompletionContext context, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
@@ -468,7 +509,7 @@ internal static partial class EditorServices
 
         var equals = argument.IndexOf('=');
         return equals >= 0
-            ? CompleteExtensionNamedValue(name, argument[..equals].Trim(), xaml, namespaces, provider)
+            ? CompleteExtensionNamedValue(name, argument[..equals].Trim(), argument[(equals + 1)..].TrimStart(), xaml, namespaces, provider)
             : CompleteExtensionArgument(name, argument, xaml, namespaces, provider);
     }
 
@@ -503,7 +544,7 @@ internal static partial class EditorServices
         {
             foreach (var name in provider.GetKnownTypeNames(uri))
             {
-                var clr = provider.TryGetType(uri, name).Type?.ClrType.UnderlyingSystemType;
+                var clr = SafeResolve(provider, uri, name)?.ClrType.UnderlyingSystemType;
                 if (clr is null || !typeof(MarkupExtension).IsAssignableFrom(clr))
                     continue;
                 var display = name.EndsWith("Extension", StringComparison.Ordinal) ? name[..^"Extension".Length] : name;
@@ -547,14 +588,14 @@ internal static partial class EditorServices
     }
 
     private static List<CompletionItemInfo> CompleteExtensionNamedValue(
-        string extension, string parameter, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+        string extension, string parameter, string value, string xaml, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         if (extension == "Binding")
         {
             if (parameter == "ElementName")
                 return NamedElementItems(xaml);
             if (parameter == "Path")
-                return BindingPathItems("", xaml, namespaces, provider);
+                return BindingPathItems(value, xaml, namespaces, provider); // {Binding Path=Customer.| walks like the positional form
         }
 
         // Enum/bool parameters (e.g. {Binding …, Mode=OneWay}) via the extension's own type.
@@ -574,7 +615,7 @@ internal static partial class EditorServices
     [GeneratedRegex("\\w+:Key\\s*=\\s*\"([^\"]+)\"")]
     private static partial Regex KeyAttribute();
 
-    [GeneratedRegex("\\w+:Name\\s*=\\s*\"([^\"]+)\"")]
+    [GeneratedRegex("(?:\\w+:)?\\bName\\s*=\\s*\"([^\"]+)\"")]
     private static partial Regex NameAttribute();
 
     /// <summary>
@@ -591,8 +632,46 @@ internal static partial class EditorServices
             items.Add(new CompletionItemInfo { Text = match.Groups[1].Value, Kind = "value", Detail = "document" });
 
         var intrinsicsPrefix = namespaces.FirstOrDefault(n => n.Value == IntrinsicsUri).Key;
+        var typePrefixes = new Dictionary<Type, string?>();
 
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var (type, fieldName, value) in KeyConstants())
+        {
+            if (!typePrefixes.TryGetValue(type, out var typePrefix))
+                typePrefixes[type] = typePrefix = intrinsicsPrefix is { Length: > 0 } ? XmlPrefixFor(type, namespaces, provider) : null;
+
+            if (typePrefix is null)
+            {
+                items.Add(new CompletionItemInfo { Text = value, Kind = "value", Detail = type.Name });
+                continue;
+            }
+
+            var qualified = typePrefix.Length == 0 ? $"{type.Name}.{fieldName}" : $"{typePrefix}:{type.Name}.{fieldName}";
+            items.Add(new CompletionItemInfo
+            {
+                Text = qualified,
+                Kind = "value",
+                Detail = value,
+                Insert = "{" + $"{intrinsicsPrefix}:Static {qualified}" + "}",
+            });
+        }
+
+        return items.DistinctBy(i => i.Text).ToList();
+    }
+
+    /// <summary>(type, field, value) tuples from the <c>*Keys</c> convention sweep, cached with
+    /// the AppDomain assembly count as the invalidation key — sweeping every loaded assembly's
+    /// types on each keystroke is the single most expensive scan here. The host loop is
+    /// single-threaded, so an unsynchronized cache field is safe.</summary>
+    private static (int AssemblyCount, List<(Type Type, string Field, string Value)>? Entries) _keyConstants;
+
+    private static List<(Type Type, string Field, string Value)> KeyConstants()
+    {
+        var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+        if (_keyConstants.Entries is { } cached && _keyConstants.AssemblyCount == assemblies.Length)
+            return cached;
+
+        var entries = new List<(Type, string, string)>();
+        foreach (var assembly in assemblies)
         {
             Type[] types;
             try
@@ -608,32 +687,16 @@ internal static partial class EditorServices
             {
                 if (!type.IsClass || !(type.IsAbstract && type.IsSealed) || !type.Name.EndsWith("Keys", StringComparison.Ordinal))
                     continue;
-
-                var typePrefix = intrinsicsPrefix is { Length: > 0 } ? XmlPrefixFor(type, namespaces, provider) : null;
                 foreach (var field in type.GetFields())
                 {
-                    if (!field.IsLiteral || field.FieldType != typeof(string) || field.GetRawConstantValue() is not string key)
-                        continue;
-
-                    if (typePrefix is null)
-                    {
-                        items.Add(new CompletionItemInfo { Text = key, Kind = "value", Detail = type.Name });
-                        continue;
-                    }
-
-                    var qualified = typePrefix.Length == 0 ? $"{type.Name}.{field.Name}" : $"{typePrefix}:{type.Name}.{field.Name}";
-                    items.Add(new CompletionItemInfo
-                    {
-                        Text = qualified,
-                        Kind = "value",
-                        Detail = key,
-                        Insert = "{" + $"{intrinsicsPrefix}:Static {qualified}" + "}",
-                    });
+                    if (field.IsLiteral && field.FieldType == typeof(string) && field.GetRawConstantValue() is string value)
+                        entries.Add((type, field.Name, value));
                 }
             }
         }
 
-        return items.DistinctBy(i => i.Text).ToList();
+        _keyConstants = (assemblies.Length, entries);
+        return entries;
     }
 
     /// <summary>
@@ -644,7 +707,7 @@ internal static partial class EditorServices
     {
         foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key.Length))
         {
-            if (provider.TryGetType(uri, type.Name).Type?.ClrType.UnderlyingSystemType == type)
+            if (SafeResolve(provider, uri, type.Name)?.ClrType.UnderlyingSystemType == type)
                 return prefix;
         }
 
@@ -671,7 +734,7 @@ internal static partial class EditorServices
             {
                 foreach (var name in provider.GetKnownTypeNames(uri))
                 {
-                    var clr = provider.TryGetType(uri, name).Type?.ClrType.UnderlyingSystemType;
+                    var clr = SafeResolve(provider, uri, name)?.ClrType.UnderlyingSystemType;
                     if (clr is null)
                         continue;
                     var hasStatics = clr.GetFields(BindingFlags.Public | BindingFlags.Static).Length > 0
