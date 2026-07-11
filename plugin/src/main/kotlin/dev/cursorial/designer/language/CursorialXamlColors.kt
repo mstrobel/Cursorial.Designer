@@ -19,16 +19,22 @@ import javax.swing.Icon
  */
 object CursorialXamlColors {
 
-    private val propertyLike: TextAttributesKey =
+    // Resolved lazily: probing the R# key's defaults goes through the TextAttributesKey
+    // defaults-provider SERVICE, and class initialization must not depend on services
+    // (the platform logs an error). First read happens in a normal call frame instead.
+    private val propertyLike: TextAttributesKey by lazy {
         TextAttributesKey.find("ReSharper.PROPERTY_IDENTIFIER").takeIf { it.defaultAttributes != null }
             ?: DefaultLanguageHighlighterColors.INSTANCE_FIELD
+    }
 
     val ELEMENT: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ELEMENT", DefaultLanguageHighlighterColors.CLASS_REFERENCE)
-    val ATTRIBUTE: TextAttributesKey =
+    val ATTRIBUTE: TextAttributesKey by lazy {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ATTRIBUTE", propertyLike)
-    val ATTACHED: TextAttributesKey =
+    }
+    val ATTACHED: TextAttributesKey by lazy {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ATTACHED", propertyLike)
+    }
     val DIRECTIVE: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_DIRECTIVE", DefaultLanguageHighlighterColors.METADATA)
     val EXTENSION: TextAttributesKey =
@@ -41,12 +47,14 @@ object CursorialXamlColors {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_BRACE", DefaultLanguageHighlighterColors.BRACES)
     val DOT: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_DOT", DefaultLanguageHighlighterColors.DOT)
-    val PARAMETER: TextAttributesKey =
+    val PARAMETER: TextAttributesKey by lazy {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_PARAMETER", propertyLike)
+    }
     val RESOURCE_KEY: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_RESOURCE_KEY", DefaultLanguageHighlighterColors.CONSTANT)
-    val BINDING_PATH: TextAttributesKey =
+    val BINDING_PATH: TextAttributesKey by lazy {
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_BINDING_PATH", propertyLike)
+    }
     val ELEMENT_REF: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_ELEMENT_REF", DefaultLanguageHighlighterColors.LOCAL_VARIABLE)
     val STATIC_MEMBER: TextAttributesKey =
@@ -62,8 +70,8 @@ object CursorialXamlColors {
     val PSEUDO_CLASS: TextAttributesKey =
         TextAttributesKey.createTextAttributesKey("CURSORIAL_XAML_PSEUDO_CLASS", DefaultLanguageHighlighterColors.METADATA)
 
-    /** Host token kinds → keys. */
-    val byKind: Map<String, TextAttributesKey> = mapOf(
+    /** Host token kinds → keys. Lazy: the property-like keys resolve against R#'s scheme on first use. */
+    val byKind: Map<String, TextAttributesKey> by lazy { mapOf(
         "element" to ELEMENT,
         "attribute" to ATTRIBUTE,
         "attached" to ATTACHED,
@@ -83,7 +91,7 @@ object CursorialXamlColors {
         "bool" to BOOL,
         "styleClass" to STYLE_CLASS,
         "pseudoClass" to PSEUDO_CLASS,
-    )
+    ) }
 
     /** Kinds a native lexer already paints correctly; applied only on plain-text files. */
     val nativeLexerKinds: Set<String> = setOf("comment", "string")
