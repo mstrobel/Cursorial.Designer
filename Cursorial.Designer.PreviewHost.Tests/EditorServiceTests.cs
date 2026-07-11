@@ -59,6 +59,44 @@ public class EditorServiceTests : IDisposable
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
         Assert.Contains(completions.Items, i => i is { Text: "Button", Kind: "element" });
         Assert.Contains(completions.Items, i => i is { Text: "TextBlock", Kind: "element" });
+
+        // Contextual filtering: statics/interfaces are not instantiable, and a StackPanel's
+        // children take UIElements — brushes are instantiable but don't fit.
+        Assert.DoesNotContain(completions.Items, i => i.Text == "AnimationDiagnostics");
+        Assert.DoesNotContain(completions.Items, i => i.Text == "SolidColorBrush");
+    }
+
+    [Fact]
+    public void Complete_narrows_elements_to_a_property_elements_type()
+    {
+        _session.Execute(new CompleteCommand
+        {
+            Id = 31,
+            Xaml = $"<StackPanel {Xmlns}>\n  <StackPanel.Children>\n    <Bu\n</StackPanel>",
+            Line = 3,
+            Column = 8,
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "Button");
+        Assert.DoesNotContain(completions.Items, i => i.Text == "SolidColorBrush");
+    }
+
+    [Fact]
+    public void Complete_leaves_object_typed_content_unfiltered()
+    {
+        // Button.Content is object: a brush is a legitimate child, so no narrowing applies.
+        _session.Execute(new CompleteCommand
+        {
+            Id = 32,
+            Xaml = $"<StackPanel {Xmlns}>\n  <Button>\n    <So\n</StackPanel>",
+            Line = 3,
+            Column = 7,
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i.Text == "SolidColorBrush");
+        Assert.DoesNotContain(completions.Items, i => i.Text == "AnimationDiagnostics"); // still not instantiable
     }
 
     [Fact]

@@ -61,7 +61,36 @@ internal static partial class EditorServices
         ContextKind Kind,
         string ElementName,
         string AttributeName,
-        string Prefix);
+        string Prefix,
+        string? ParentElement = null);
+
+    [GeneratedRegex("<(/?)([A-Za-z_][\\w.:-]*)((?:[^<>\"]|\"[^\"]*\")*?)(/?)>", RegexOptions.Singleline)]
+    private static partial Regex TagToken();
+
+    /// <summary>
+    /// The innermost still-open element before <paramref name="beforeOffset"/> — a tolerant
+    /// tag-stack walk over possibly-malformed mid-edit text.
+    /// </summary>
+    internal static string? FindParentElement(string xaml, int beforeOffset)
+    {
+        var stack = new Stack<string>();
+        foreach (Match match in TagToken().Matches(xaml[..Math.Clamp(beforeOffset, 0, xaml.Length)]))
+        {
+            var closing = match.Groups[1].Value.Length > 0;
+            var selfClosed = match.Groups[4].Value.Length > 0;
+            if (closing)
+            {
+                if (stack.Count > 0)
+                    stack.Pop();
+            }
+            else if (!selfClosed)
+            {
+                stack.Push(match.Groups[2].Value);
+            }
+        }
+
+        return stack.Count > 0 ? stack.Peek() : null;
+    }
 
     /// <summary>
     /// Detects what the caret is completing: an element name (right after <c>&lt;</c>), an
@@ -84,7 +113,7 @@ internal static partial class EditorServices
 
         // No whitespace yet → still typing the element name itself.
         if (!segment.Any(char.IsWhiteSpace))
-            return new CompletionContext(ContextKind.ElementName, "", "", segment);
+            return new CompletionContext(ContextKind.ElementName, "", "", segment, FindParentElement(xaml, open));
 
         var elementName = segment.TakeWhile(c => !char.IsWhiteSpace(c)).ToArray() is { Length: > 0 } name
             ? new string(name)
@@ -129,15 +158,28 @@ internal static partial class EditorServices
         {
             case ContextKind.ElementName:
             {
+                // Contextual filtering: only instantiable types (statics/interfaces/abstracts
+                // have no activation path), narrowed to what the insertion point accepts — a
+                // panel's children take UIElements, a property element takes its property's type.
+                var target = ResolveInsertionTargetType(context.ParentElement, namespaces, provider);
+
                 foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key, StringComparer.Ordinal))
                 {
+                    var clrNamespace = provider.GetClrNamespaces(uri).FirstOrDefault();
                     foreach (var name in provider.GetKnownTypeNames(uri))
                     {
+                        var candidate = provider.TryGetType(uri, name).Type;
+                        var clr = candidate?.ClrType.UnderlyingSystemType;
+                        if (candidate is null || !IsInstantiable(candidate, clr))
+                            continue;
+                        if (target is not null && clr is not null && !target.IsAssignableFrom(clr))
+                            continue;
+
                         items.Add(new CompletionItemInfo
                         {
                             Text = prefix.Length == 0 ? name : $"{prefix}:{name}",
                             Kind = "element",
-                            Detail = provider.GetClrNamespaces(uri).FirstOrDefault(),
+                            Detail = clrNamespace,
                         });
                     }
                 }
@@ -188,6 +230,68 @@ internal static partial class EditorServices
         }
 
         return items;
+    }
+
+    private static bool IsInstantiable(XamlType candidate, Type? clr)
+    {
+        if (candidate.Activate is not null)
+            return true;
+
+        // Construction-immutable types (Setter-style) have no parameterless activation but are
+        // legitimate XAML elements when they fit the target — keep anything concretely
+        // constructible and let assignability narrow it.
+        return clr is { IsAbstract: false, IsInterface: false } && clr.GetConstructors().Length > 0;
+    }
+
+    /// <summary>
+    /// What the insertion point accepts: a property element's property type, or the parent's
+    /// content property type (collections reduce to their item type). Null = no constraint —
+    /// object-typed content stays unfiltered rather than over-filtering.
+    /// </summary>
+    private static Type? ResolveInsertionTargetType(string? parentElement, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        if (parentElement is null)
+            return null;
+
+        XamlMember? member;
+        var dot = parentElement.IndexOf('.');
+        if (dot > 0)
+        {
+            var owner = ResolveElement(parentElement[..dot], namespaces, provider);
+            member = owner?.TryGetMember(parentElement[(dot + 1)..]);
+        }
+        else
+        {
+            var parent = ResolveElement(parentElement, namespaces, provider);
+            member = parent?.ContentProperty is { } content ? parent.TryGetMember(content) : null;
+        }
+
+        var clr = member?.ValueType.UnderlyingSystemType;
+        if (clr is null)
+            return null;
+
+        var target = ItemTypeOf(clr) ?? clr;
+        return target == typeof(object) ? null : target;
+    }
+
+    /// <summary>The element type of a collection-ish type, or null for non-collections.</summary>
+    private static Type? ItemTypeOf(Type type)
+    {
+        foreach (var contract in type.GetInterfaces())
+        {
+            if (!contract.IsGenericType)
+                continue;
+            var definition = contract.GetGenericTypeDefinition();
+            if (definition == typeof(ICollection<>) || definition == typeof(IList<>))
+                return contract.GetGenericArguments()[0];
+            if (definition == typeof(IDictionary<,>))
+                return contract.GetGenericArguments()[1];
+        }
+
+        // Fallback: a public single-parameter Add (the XAML collection contract).
+        return type.GetMethods()
+            .FirstOrDefault(m => m.Name == "Add" && m.GetParameters().Length == 1)
+            ?.GetParameters()[0].ParameterType;
     }
 
     private static XamlType? ResolveElement(string elementName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
