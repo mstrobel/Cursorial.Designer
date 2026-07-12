@@ -37,6 +37,32 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Analyze_reports_build_phase_diagnostics()
+    {
+        // CUR2105 (no collection access) is raised by the object-graph BUILDER, not the parser —
+        // a parse-only analyze never saw it and the Problems pane stayed quiet.
+        _session.Execute(new AnalyzeCommand
+        {
+            Id = 21,
+            Xaml = $"""
+                    <StackPanel {Xmlns}>
+                        <ContentControl>
+                            <ContentControl.Content>
+                                <TextBlock Text="a"/>
+                                <TextBlock Text="b"/>
+                            </ContentControl.Content>
+                        </ContentControl>
+                    </StackPanel>
+                    """,
+        });
+
+        var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
+        var error = Assert.Single(diagnostics.Items, d => d.Severity == "error");
+        Assert.Equal("CUR2105", error.Code);
+        Assert.True(error.Line > 1, $"expected a positioned error, got line {error.Line}");
+    }
+
+    [Fact]
     public void Analyze_tolerates_malformed_mid_edit_documents()
     {
         _session.Execute(new AnalyzeCommand { Id = 2, Xaml = $"<StackPanel {Xmlns}>\n    <Butt" });

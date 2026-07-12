@@ -449,11 +449,44 @@ internal sealed class PreviewSession : IDisposable
         RegisterAssemblies(command.Assemblies, command.Id);
         var uri = command.SourceUri is { } s && Uri.TryCreate(s, UriKind.Absolute, out var parsed) ? parsed : null;
         var document = _loader.Parse(command.Xaml, uri);
+        var items = ToDiagnosticInfos(document.Diagnostics);
+
+        // Build-phase diagnostics (CUR2105 no-collection-access, unresolvable x:Reference, setter
+        // failures): the graph builder raises these at REALIZATION, so a parse-only pass never
+        // sees them. Attempt the build when the parse is clean — atop parse errors it would only
+        // cascade noise. The throwaway tree runs user constructors, exactly what the previewer
+        // does on every reload; anything non-XAML it throws is swallowed (fail open — the
+        // previewer's own load channel reports instantiation failures).
+        if (!items.Any(d => d.Severity == "error"))
+        {
+            try
+            {
+                _ = _loader.Load(document, uri is null ? null : new XamlLoadContext { Source = uri });
+            }
+            catch (XamlParseException ex)
+            {
+                foreach (var d in ex.Diagnostics)
+                {
+                    items.Add(new DiagnosticInfo
+                    {
+                        Code = d.Code,
+                        Message = d.Message,
+                        Line = d.Line,
+                        Column = d.Column,
+                        Severity = "error",
+                    });
+                }
+            }
+            catch
+            {
+            }
+        }
+
         _emit(new DiagnosticsEvent
         {
             ReplyTo = command.Id,
             SourceUri = command.SourceUri,
-            Items = ToDiagnosticInfos(document.Diagnostics),
+            Items = items,
             Tokens = command.Classify == true ? EditorServices.ClassifyTokens(command.Xaml) : null,
         });
     }
@@ -879,6 +912,8 @@ internal sealed class PreviewSession : IDisposable
                     ValueSource = source.Kind.ToString(),
                     DeclaringType = DeclaringTypeFor(element, property),
                     Priority = source.Priority.ToString(),
+                    // Theme-reactive defaults resolve through a key — provenance worth showing.
+                    ResourceKey = property.GetDefaultResourceKey(element.GetType())?.ToString(),
                 });
             }
         }

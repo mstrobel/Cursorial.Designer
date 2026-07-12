@@ -444,7 +444,11 @@ public class PreviewSessionTests : IDisposable
         var visibility = Assert.Single(withDefaults.Items, p => p.Name == "Visibility");
         Assert.Null(visibility.DeclaringType);
         Assert.Equal("Default", visibility.ValueSource);
-        Assert.Contains(withDefaults.Items, p => p.Name == "Foreground"); // some lane, always present
+
+        // Theme-reactive defaults annotate the key they resolve through.
+        var foreground = Assert.Single(withDefaults.Items, p => p.Name == "Foreground");
+        Assert.Equal("Default", foreground.ValueSource);
+        Assert.Equal("Theme.TextBrush", foreground.ResourceKey);
     }
 
     [Fact]

@@ -51,6 +51,10 @@ class CursorialXamlExternalAnnotator : ExternalAnnotator<CursorialXamlExternalAn
         val text = annotationResult.source.text
         if (text != file.text) return
 
+        // Mirror the fresh results into the project-wide Problems tab (Current File is
+        // daemon-fed and stops at open files).
+        file.virtualFile?.let { CursorialProblemsPublisher.getInstance(file.project).publish(it, result.items) }
+
         for (item in result.items) {
             val start = offsetOf(text, item.line, item.column) ?: continue
             val range = highlightRange(text, start) ?: continue
