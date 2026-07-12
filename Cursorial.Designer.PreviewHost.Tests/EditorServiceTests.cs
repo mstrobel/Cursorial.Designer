@@ -908,6 +908,26 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Hover_resolves_x_class_to_the_code_behind_type()
+    {
+        // DesignViewModel stands in for a code-behind type living in a registered user assembly.
+        var xaml = $"<StackPanel {Xmlns} x:Class=\"Cursorial.Designer.Tests.PreviewHost.DesignViewModel\"/>";
+        var line1 = $"<StackPanel {Xmlns} x:Class=\"Cursorial.Designer.Tests.PreviewHost.";
+        _session.Execute(new HoverCommand
+        {
+            Id = 132,
+            Xaml = xaml,
+            Line = 1,
+            Column = line1.Length + 3,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        var hover = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+        Assert.Contains("Cursorial.Designer.Tests.PreviewHost.DesignViewModel", hover.Signature);
+        Assert.Contains("partial class", hover.Signature);
+    }
+
+    [Fact]
     public void Definition_on_resource_uri_opens_the_referenced_document()
     {
         var dir = Directory.CreateTempSubdirectory("cursorial-editor-test-");

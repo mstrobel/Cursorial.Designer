@@ -100,6 +100,31 @@ internal static partial class EditorServices
                 Add(start + dot + 1, memberName.Length, DottedMemberKind(ownerName, memberName));
         }
 
+        // The x:Class value: a full CLR name painted namespace-dot-type when it resolves to a
+        // loaded type (the code-behind must be built), string otherwise.
+        void ClassifyClassDirectiveValue(int contentStart, string content)
+        {
+            var name = content.Trim();
+            if (name.Length == 0 || EditorServices.ResolveClrTypeName(name) is null)
+            {
+                Add(contentStart - 1, content.Length + 2, "string");
+                return;
+            }
+
+            var offset = contentStart + (content.Length - content.TrimStart().Length);
+            var lastDot = name.LastIndexOf('.');
+            if (lastDot > 0)
+            {
+                Add(offset, lastDot, "namespace");
+                Add(offset + lastDot, 1, "dot");
+                Add(offset + lastDot + 1, name.Length - lastDot - 1, "element");
+            }
+            else
+            {
+                Add(offset, name.Length, "element");
+            }
+        }
+
         // A possibly-prefixed type reference: the xmlns prefix gets its own kind (consistent
         // with the declaration side), the colon paints as a delimiter, the local name as the type.
         void AddTypeName(int start, string name)
@@ -419,7 +444,13 @@ internal static partial class EditorServices
                 }
 
                 var value = attribute.Groups[2];
-                if (attrName.Value == "Selector")
+                var attrColon = attrName.Value.IndexOf(':');
+                var isClassDirective = attrColon > 0
+                    && attrName.Value[(attrColon + 1)..] == "Class"
+                    && intrinsicsPrefix is { Length: > 0 } && attrName.Value[..attrColon] == intrinsicsPrefix;
+                if (isClassDirective)
+                    ClassifyClassDirectiveValue(attributes.Index + value.Index, value.Value);
+                else if (attrName.Value == "Selector")
                     ClassifySelectorValue(attributes.Index + value.Index, value.Value);
                 else if (value.Value.Contains('{'))
                     ClassifyExtensionValue(attributes.Index + value.Index, value.Value);
@@ -645,6 +676,15 @@ internal static partial class EditorServices
         if (attributeName == "Selector")
             return SelectorSymbol(xaml, documentPath, value, offsetInValue, enclosingTagOffset, namespaces, provider);
 
+        // x:Class names the code-behind type: hover shows its signature, Ctrl+B jumps to the
+        // class declaration (PDB type-level navigation — lands in the .xaml.cs half).
+        var xClassColon = attributeName.IndexOf(':');
+        if (xClassColon > 0 && attributeName[(xClassColon + 1)..] == "Class"
+            && namespaces.GetValueOrDefault(attributeName[..xClassColon]) == IntrinsicsUri)
+        {
+            return ClassDirectiveSymbol(value.Trim());
+        }
+
         // On an extension name itself ({Binding, {x:Static, {theme:Elevate)? Prefer the REALIZED
         // type when one exists — {Binding} forwards to the Binding class and its docs; only
         // loader-level intrinsics with no CLR realization get the generic blurb.
@@ -767,6 +807,44 @@ internal static partial class EditorServices
             "RelativeSource" => RelativeSourceModeSymbol(token, namespaces, provider),
             _ => null,
         };
+    }
+
+    /// <summary>The code-behind type an <c>x:Class</c> value names, resolved across loaded assemblies.</summary>
+    private static SymbolInfo? ClassDirectiveSymbol(string fullName)
+    {
+        if (fullName.Length == 0)
+            return null;
+
+        var clr = ResolveClrTypeName(fullName);
+        if (clr is null)
+            return null;
+
+        var baseSuffix = clr.BaseType is { } baseType && baseType != typeof(object) ? $" : {baseType.Name}" : "";
+        return new SymbolInfo(
+            clr.Name,
+            $"partial class {clr.FullName}{baseSuffix}",
+            clr,
+            null,
+            [$"T:{DocTypeName(clr)}"],
+            clr.Assembly.GetName().Name);
+    }
+
+    /// <summary>A full CLR type name resolved across every loaded assembly (user assemblies included).</summary>
+    internal static Type? ResolveClrTypeName(string fullName)
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            try
+            {
+                if (assembly.GetType(fullName, throwOnError: false) is { } type)
+                    return type;
+            }
+            catch (Exception ex) when (ex is NotSupportedException or System.IO.FileLoadException)
+            {
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1496,7 +1574,16 @@ internal static partial class EditorServices
                 if (hits.Count == 0)
                     return null;
 
-                var bestFile = hits.GroupBy(h => h.File, StringComparer.Ordinal).MaxBy(g => g.Count())!.Key;
+                // Partial classes split across a hand-written half and a GENERATED half (x:Class
+                // code-behinds); the generated file often carries more member bodies, but the
+                // hand-written one is where a human means to go. Prefer non-generated documents,
+                // then the one most members live in.
+                var bestFile = hits
+                    .GroupBy(h => h.File, StringComparer.Ordinal)
+                    .OrderBy(g => g.Key.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase)
+                                  || g.Key.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+                    .ThenByDescending(g => g.Count())
+                    .First().Key;
                 var earliest = hits.Where(h => h.File == bestFile).MinBy(h => h.Line);
 
                 // Types have no sequence points of their own, so the earliest member body is the

@@ -375,6 +375,12 @@ public class PreviewSessionTests : IDisposable
         var text = Assert.Single(properties.Items, p => p.Name == "Text");
         Assert.Equal("Inspect me", text.Value);
         Assert.Equal("Local", text.ValueSource);
+
+        // Layout facts lead the grid — not UIProperties, but the numbers every question starts from.
+        Assert.Equal("DesiredSize", properties.Items[0].Name);
+        Assert.Equal("Bounds", properties.Items[1].Name);
+        Assert.All(properties.Items.Take(2), p => Assert.Equal("Layout", p.ValueSource));
+        Assert.All(properties.Items.Take(2), p => Assert.False(string.IsNullOrEmpty(p.Value)));
     }
 
     [Fact]

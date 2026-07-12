@@ -799,6 +799,12 @@ internal sealed class PreviewSession : IDisposable
 
         var element = _elementsById[command.ElementId];
         var items = new List<PropertyEntry>();
+
+        // Layout facts lead the grid: not UIProperties (no lanes, no provenance) but the two
+        // numbers every layout question starts from.
+        items.Add(new PropertyEntry { Name = "DesiredSize", Value = ValueFormatter.Format(element.DesiredSize), ValueSource = "Layout" });
+        items.Add(new PropertyEntry { Name = "Bounds", Value = ValueFormatter.Format(element.Bounds), ValueSource = "Layout" });
+
         var setProperties = element.GetSetProperties();
         foreach (var property in setProperties)
         {
