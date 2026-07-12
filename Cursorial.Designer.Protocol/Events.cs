@@ -11,6 +11,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(ReadyEvent), "ready")]
 [JsonDerivedType(typeof(FrameEvent), "frame")]
 [JsonDerivedType(typeof(DiagnosticsEvent), "diagnostics")]
+[JsonDerivedType(typeof(DependenciesEvent), "dependencies")]
 [JsonDerivedType(typeof(HitTestResultEvent), "hitTestResult")]
 [JsonDerivedType(typeof(ChildrenEvent), "children")]
 [JsonDerivedType(typeof(PropertiesEvent), "properties")]
@@ -101,6 +102,16 @@ public sealed class TokenInfo
     /// <summary><c>element</c>, <c>attached</c>, <c>directive</c>, or <c>extension</c>.</summary>
     [JsonPropertyName("k")]
     public required string Kind { get; init; }
+}
+
+/// <summary>
+/// The on-disk files the most recent <c>loadXaml</c> actually consumed beyond the document
+/// itself (linked resource dictionaries, live project files preferred over baked embedded
+/// copies). The IDE watches these and reloads the preview when one changes.
+/// </summary>
+public sealed class DependenciesEvent : PreviewEvent
+{
+    public required IReadOnlyList<string> Files { get; init; }
 }
 
 /// <summary>Answer to <c>hitTest</c>: the element chain at the position, innermost first. Empty when nothing hit.</summary>

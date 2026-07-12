@@ -409,6 +409,11 @@ public class PreviewSessionTests : IDisposable
             var diagnostics = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent));
             Assert.DoesNotContain(diagnostics.Items, d => d.Severity == "error");
             Assert.Contains("from-disk", Fold().Lines.SelectMany(l => l).Select(r => r.Text).Aggregate((a, b) => a + b));
+
+            // The consumed files report as the IDE's reload-watch list.
+            var dependencies = Assert.IsType<DependenciesEvent>(_events.Last(e => e is DependenciesEvent));
+            Assert.Equal(31, dependencies.ReplyTo);
+            Assert.Contains(dependencies.Files, f => f.EndsWith("Res.xaml", StringComparison.Ordinal));
         }
         finally
         {

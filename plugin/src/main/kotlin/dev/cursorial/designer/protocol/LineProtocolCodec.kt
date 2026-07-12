@@ -22,6 +22,7 @@ object LineProtocolCodec {
         "ready" to ReadyEvent::class.java,
         "frame" to FrameEvent::class.java,
         "diagnostics" to DiagnosticsEvent::class.java,
+        "dependencies" to DependenciesEvent::class.java,
         "hitTestResult" to HitTestResultEvent::class.java,
         "children" to ChildrenEvent::class.java,
         "cellSamples" to CellSamplesEvent::class.java,

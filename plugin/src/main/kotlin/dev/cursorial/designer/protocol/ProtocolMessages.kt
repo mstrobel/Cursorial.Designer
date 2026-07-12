@@ -334,6 +334,12 @@ data class DiagnosticItem(
     val severity: String,
 )
 
+/** Files the most recent loadXaml consumed beyond the document — the preview's reload-watch list. */
+data class DependenciesEvent(
+    val replyTo: Int?,
+    val files: List<String> = emptyList(),
+) : PreviewerEvent
+
 data class HitTestResultEvent(
     val replyTo: Int?,
     val elements: List<HitTestElement>,

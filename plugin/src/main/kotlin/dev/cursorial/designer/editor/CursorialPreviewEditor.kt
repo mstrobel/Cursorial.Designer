@@ -165,7 +165,37 @@ class CursorialPreviewEditor(
     // restart fires, so a mid-write file is never loaded.
     private val watchedAssemblies = HashMap<String, Long>()
     private var pendingAssemblyChange: Map<String, Long>? = null
-    private val rebuildWatchTimer = javax.swing.Timer(2000) { checkForRebuild() }.apply { start() }
+    private val rebuildWatchTimer = javax.swing.Timer(2000) { checkForRebuild(); checkForDependencyChange() }.apply { start() }
+
+    // Reload-on-dependency-change: the files the host reported consuming for the current
+    // document (linked resource dictionaries etc.). Same two-tick stability rule; a change
+    // re-sends loadXaml — no host restart needed, the files re-read on load.
+    private val watchedDependencies = HashMap<String, Long>()
+    private var pendingDependencyChange: Map<String, Long>? = null
+
+    private fun onDependencies(event: dev.cursorial.designer.protocol.DependenciesEvent) {
+        watchedDependencies.clear()
+        pendingDependencyChange = null
+        for (path in event.files)
+            watchedDependencies[path] = java.io.File(path).lastModified()
+    }
+
+    private fun checkForDependencyChange() {
+        if (watchedDependencies.isEmpty()) return
+        val current = watchedDependencies.keys.associateWith { java.io.File(it).lastModified() }
+        if (current == watchedDependencies) {
+            pendingDependencyChange = null
+            return
+        }
+        if (current == pendingDependencyChange) {
+            pendingDependencyChange = null
+            watchedDependencies.putAll(current)
+            reloadAlarm.cancelAllRequests()
+            reloadAlarm.addRequest({ sendLoadXaml() }, 0)
+        } else {
+            pendingDependencyChange = current
+        }
+    }
 
     private fun checkForRebuild() {
         if (watchedAssemblies.isEmpty()) return
@@ -226,6 +256,7 @@ class CursorialPreviewEditor(
                     reselectAfterLoadIfNeeded()
                 }
                 is DiagnosticsEvent -> onEdt { showDiagnostics(event) }
+                is dev.cursorial.designer.protocol.DependenciesEvent -> onEdt { onDependencies(event) }
                 is HitTestResultEvent -> onEdt { showHitTestResult(event) }
                 is PropertiesEvent -> onEdt { showProperties(event) }
                 is CellSamplesEvent -> onEdt { showCellSamples(event) }

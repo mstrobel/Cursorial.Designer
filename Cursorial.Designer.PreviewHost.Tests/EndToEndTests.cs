@@ -61,6 +61,10 @@ public class EndToEndTests
                        """,
             });
 
+            // The load first reports its consumed on-disk dependencies (none for inline text).
+            var dependencies = Assert.IsType<DependenciesEvent>(await NextEvent());
+            Assert.Empty(dependencies.Files);
+
             var diagnostics = Assert.IsType<DiagnosticsEvent>(await NextEvent());
             Assert.Empty(diagnostics.Items);
 

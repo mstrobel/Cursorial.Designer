@@ -36,6 +36,9 @@ the session survives errors and keeps rendering the previous content.
 {"type":"describeElement","id":12,"elementId":3}  // re-answers hitTestResult with FRESH bounds
                                            // (selection refresh after resize/relayout)
 {"type":"getProperties","id":8,"elementId":3}  // includeDefaults:true adds default-lane rows
+                                           // loadXaml also answers a `dependencies` event listing
+                                           // the on-disk files it consumed (linked dictionaries) —
+                                           // the IDE watches them and reloads on change
 {"type":"sampleCell","id":10,"column":5,"row":2}  // per-cell composition inspector
 {"type":"analyze","id":11,"xaml":"<…>","sourceUri":"file:///…",
  "assemblies":["…"],"classify":true}       // editor service: parse-only diagnostics; valid

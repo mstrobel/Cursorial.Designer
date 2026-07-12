@@ -75,8 +75,11 @@ internal sealed class PreviewSession : IDisposable
         // resolves against the document's file:// URI, so the previewer's provider must read
         // files — falling back to the standard embedded-resource lookup (cursorial://, which the
         // user's built assemblies answer once registered). Process-global, host-owned process.
-        Cursorial.UI.Xaml.XamlModule.ResourceProvider = new DesignerXamlResourceProvider();
+        Cursorial.UI.Xaml.XamlModule.ResourceProvider = DesignerResources;
     }
+
+    /// <summary>The previewer's resource provider — also the per-load dependency recorder.</summary>
+    private static readonly DesignerXamlResourceProvider DesignerResources = new();
 
     public PreviewSession(Action<PreviewEvent> emit) => _emit = emit;
 
@@ -84,18 +87,49 @@ internal sealed class PreviewSession : IDisposable
     {
         private readonly Cursorial.UI.Xaml.EmbeddedXamlResourceProvider _embedded = new();
 
+        /// <summary>The current document's directory — the probe root for scheme URIs.</summary>
+        public string? DocumentDirectory { get; set; }
+
+        /// <summary>Every file the current load consumed — the IDE's watch list.</summary>
+        public List<string> ReadFiles { get; } = [];
+
         public bool TryGetXaml(Uri uri, out string? xaml)
         {
             xaml = null;
-            if (uri.IsAbsoluteUri && uri.IsFile)
+            if (!uri.IsAbsoluteUri)
+                return false;
+
+            if (uri.IsFile)
+                return TryReadFile(uri.LocalPath, out xaml);
+
+            // Live-over-baked: a cursorial://-style reference whose path exists in the project
+            // (probed from the document's ancestors, the same convention navigation uses) reads
+            // the FILE — the designer previews what the user is editing, not what the last
+            // build embedded. Misses fall through to the embedded lookup.
+            if (DocumentDirectory is { } root
+                && (string.Equals(uri.Scheme, "cursorial", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(uri.Scheme, "embedded", StringComparison.OrdinalIgnoreCase)))
             {
-                if (!File.Exists(uri.LocalPath))
-                    return false;
-                xaml = File.ReadAllText(uri.LocalPath);
-                return true;
+                var relative = uri.AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                for (var dir = root; dir is { Length: > 0 }; dir = Path.GetDirectoryName(dir))
+                {
+                    if (TryReadFile(Path.Combine(dir, relative), out xaml))
+                        return true;
+                }
             }
 
             return _embedded.TryGetXaml(uri, out xaml);
+        }
+
+        private bool TryReadFile(string path, out string? xaml)
+        {
+            xaml = null;
+            if (!File.Exists(path))
+                return false;
+
+            xaml = File.ReadAllText(path);
+            ReadFiles.Add(Path.GetFullPath(path));
+            return true;
         }
     }
 
@@ -289,6 +323,10 @@ internal sealed class PreviewSession : IDisposable
             return;
         }
 
+        DesignerResources.DocumentDirectory =
+            sourceUri is { IsFile: true } ? Path.GetDirectoryName(sourceUri.LocalPath) : null;
+        DesignerResources.ReadFiles.Clear();
+
         object root;
         try
         {
@@ -308,6 +346,7 @@ internal sealed class PreviewSession : IDisposable
                 });
             }
 
+            EmitDependencies(command.Id);
             _emit(new DiagnosticsEvent { ReplyTo = command.Id, SourceUri = command.SourceUri, Items = diagnostics });
             return;
         }
@@ -325,10 +364,13 @@ internal sealed class PreviewSession : IDisposable
                 Severity = "error",
             });
 
+            EmitDependencies(command.Id);
             _emit(new DiagnosticsEvent { ReplyTo = command.Id, SourceUri = command.SourceUri, Items = diagnostics });
             _emit(new ErrorEvent { ReplyTo = command.Id, Message = "The document's content threw while being instantiated.", Detail = ex.ToString() });
             return;
         }
+
+        EmitDependencies(command.Id);
 
         if (root is not UIElement element)
         {
@@ -775,6 +817,14 @@ internal sealed class PreviewSession : IDisposable
             InDocument = source is null ? null : source.Source is not null && source.Source == _documentUri,
         };
     }
+
+    /// <summary>The files the load just consumed — the IDE's reload-watch list.</summary>
+    private void EmitDependencies(long? replyTo)
+        => _emit(new DependenciesEvent
+        {
+            ReplyTo = replyTo,
+            Files = DesignerResources.ReadFiles.Distinct(StringComparer.Ordinal).ToList(),
+        });
 
     /// <summary>
     /// The type qualification for a property row, or null when the name is addressable as a plain
