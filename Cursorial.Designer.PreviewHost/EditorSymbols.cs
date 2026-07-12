@@ -704,6 +704,8 @@ internal static partial class EditorServices
                 return null;
             if (plainUnderlying == typeof(Type))
                 return TypeNameOrPrefixSymbol(xaml, documentPath, token, offsetInValue - start, namespaces, provider);
+            if (plainUnderlying == typeof(Uri))
+                return UriTargetSymbol(value.Trim(), documentPath);
             return plainUnderlying is { IsEnum: true } ? EnumMemberSymbol(plainUnderlying, token) : null;
         }
 
@@ -765,6 +767,60 @@ internal static partial class EditorServices
             "RelativeSource" => RelativeSourceModeSymbol(token, namespaces, provider),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// A Uri-typed value (<c>ResourceDictionary Source</c>, image sources): resolves the referenced
+    /// document to a FILE next to (or above) the containing document and navigates there. Relative
+    /// references probe the document's own directory; <c>cursorial://</c>/<c>embedded://</c>/plain
+    /// paths probe each ancestor directory for the URI's path portion — the project-layout
+    /// convention behind the embedded-resource scheme (Views/Res.xaml lives at ProjectRoot/Views/).
+    /// </summary>
+    private static SymbolInfo? UriTargetSymbol(string raw, string? documentPath)
+    {
+        if (raw.Length == 0 || documentPath is null)
+            return null;
+
+        var relative = raw;
+        var schemeEnd = raw.IndexOf("://", StringComparison.Ordinal);
+        if (schemeEnd >= 0)
+        {
+            var afterAuthority = raw.IndexOf('/', schemeEnd + 3);
+            if (afterAuthority < 0)
+                return null;
+            relative = raw[(afterAuthority + 1)..];
+        }
+
+        if (relative.Length == 0)
+            return null;
+
+        var probe = relative.Replace('/', Path.DirectorySeparatorChar);
+        for (var dir = Path.GetDirectoryName(documentPath); dir is { Length: > 0 }; dir = Path.GetDirectoryName(dir))
+        {
+            string candidate;
+            try
+            {
+                candidate = Path.GetFullPath(Path.Combine(dir, probe));
+            }
+            catch (ArgumentException)
+            {
+                return null; // invalid path characters — not a navigable reference
+            }
+
+            if (File.Exists(candidate))
+            {
+                return new SymbolInfo(
+                    Path.GetFileName(candidate),
+                    $"resource {raw}",
+                    null,
+                    null,
+                    [],
+                    candidate,
+                    (candidate, 1, 1));
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

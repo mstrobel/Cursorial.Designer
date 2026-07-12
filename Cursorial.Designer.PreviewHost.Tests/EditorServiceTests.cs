@@ -908,6 +908,47 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Definition_on_resource_uri_opens_the_referenced_document()
+    {
+        var dir = Directory.CreateTempSubdirectory("cursorial-editor-test-");
+        try
+        {
+            var views = Directory.CreateDirectory(Path.Combine(dir.FullName, "Views"));
+            var target = Path.Combine(views.FullName, "Res.xaml");
+            File.WriteAllText(target, "<ResourceDictionary/>");
+            var main = Path.Combine(views.FullName, "Main.xaml");
+
+            // Relative reference: probes next to the document.
+            var relXaml = $"<StackPanel {Xmlns}>\n    <StackPanel.Resources><ResourceDictionary Source=\"Res.xaml\"/></StackPanel.Resources>\n</StackPanel>";
+            var relLine = "    <StackPanel.Resources><ResourceDictionary Source=\"Res.xaml\"/></StackPanel.Resources>";
+            _session.Execute(new DefinitionCommand
+            {
+                Id = 130, Xaml = relXaml, Line = 2,
+                Column = relLine.IndexOf("Res.xaml", StringComparison.Ordinal) + 3,
+                FilePath = main,
+            });
+            var relative = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+            Assert.Equal(target, relative.File);
+
+            // Scheme reference: the URI's path portion probes each ancestor (project layout).
+            var absXaml = $"<StackPanel {Xmlns}>\n    <StackPanel.Resources><ResourceDictionary Source=\"cursorial://App/Views/Res.xaml\"/></StackPanel.Resources>\n</StackPanel>";
+            var absLine = "    <StackPanel.Resources><ResourceDictionary Source=\"cursorial://App/Views/Res.xaml\"/></StackPanel.Resources>";
+            _session.Execute(new DefinitionCommand
+            {
+                Id = 131, Xaml = absXaml, Line = 2,
+                Column = absLine.IndexOf("Views/Res.xaml", StringComparison.Ordinal) + 8,
+                FilePath = main,
+            });
+            var schemed = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+            Assert.Equal(target, schemed.File);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void Definition_on_xmlns_prefix_jumps_to_declaration()
     {
         var ns = "clr-namespace:Cursorial.UI.Bars;assembly=Cursorial.UI.Bars";
