@@ -321,11 +321,44 @@ internal static partial class EditorServices
                         items.Add(new CompletionItemInfo { Text = $"{intrinsicsPrefix}:{directive}", Kind = "attribute", Detail = "directive" });
                 }
 
+                // Design-time (d:) and markup-compatibility (mc:) vocabularies — no IDE offers
+                // our URIs in xmlns completion, so at least the ATTRIBUTES complete once the
+                // prefixes are declared (the templates ship them preset).
+                foreach (var (prefix, uri) in namespaces)
+                {
+                    if (prefix.Length == 0)
+                        continue;
+
+                    if (DesignUris.Contains(uri))
+                    {
+                        foreach (var design in new[] { "DataContext", "DesignWidth", "DesignHeight" })
+                            items.Add(new CompletionItemInfo { Text = $"{prefix}:{design}", Kind = "attribute", Detail = "design-time" });
+                    }
+                    else if (uri == MarkupCompatibilityUri)
+                    {
+                        items.Add(new CompletionItemInfo { Text = $"{prefix}:Ignorable", Kind = "attribute", Detail = "markup compatibility" });
+                    }
+                }
+
                 break;
             }
 
             case ContextKind.AttributeValue:
             {
+                // mc:Ignorable's values are the declared ignorable prefixes — offer the design ones.
+                var attrColon = context.AttributeName.IndexOf(':');
+                if (attrColon > 0 && context.AttributeName[(attrColon + 1)..] == "Ignorable"
+                    && namespaces.GetValueOrDefault(context.AttributeName[..attrColon]) == MarkupCompatibilityUri)
+                {
+                    foreach (var (prefix, uri) in namespaces)
+                    {
+                        if (DesignUris.Contains(uri))
+                            items.Add(new CompletionItemInfo { Text = prefix, Kind = "value", Detail = "design-time namespace" });
+                    }
+
+                    break;
+                }
+
                 if (context.AttributeName == "Selector")
                 {
                     items.AddRange(SelectorCompletions(context.Prefix, xaml, namespaces, provider));
@@ -546,10 +579,17 @@ internal static partial class EditorServices
         var colon = attribute.IndexOf(':');
         if (colon >= 0)
         {
-            // d:DataContext names a type — the design-namespace attribute with a value grammar.
-            if (colon > 0 && attribute[(colon + 1)..] == "DataContext"
-                && namespaces.TryGetValue(attribute[..colon], out var uri) && DesignUris.Contains(uri))
-                return typeof(Type);
+            // The design-namespace attributes with value grammars: d:DataContext names a type,
+            // d:DesignWidth/Height are cell counts (numeric classification, no completion items).
+            if (colon > 0 && namespaces.TryGetValue(attribute[..colon], out var uri) && DesignUris.Contains(uri))
+            {
+                return attribute[(colon + 1)..] switch
+                {
+                    "DataContext" => typeof(Type),
+                    "DesignWidth" or "DesignHeight" => typeof(int),
+                    _ => null,
+                };
+            }
 
             return null; // directives (x:) and prefixed attached owners: no value completion yet
         }
@@ -583,6 +623,7 @@ internal static partial class EditorServices
     // ── Markup-extension completion ────────────────────────────────────────────────────────────
 
     private const string IntrinsicsUri = "https://cursorial.dev/xaml";
+    private const string MarkupCompatibilityUri = "http://schemas.openxmlformats.org/markup-compatibility/2006";
     private static readonly string[] DesignUris =
     [
         "http://schemas.microsoft.com/expression/blend/2008",

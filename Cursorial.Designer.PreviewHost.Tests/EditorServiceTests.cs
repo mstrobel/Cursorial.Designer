@@ -868,6 +868,34 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_design_and_compat_attributes()
+    {
+        var extra = "xmlns:d=\"https://cursorial.dev/xaml/design\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"";
+        var xaml = $"<StackPanel {Xmlns} {extra}>\n    <TextBlock \n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 127, Xaml = xaml, Line = 2, Column = "    <TextBlock ".Length + 1 });
+
+        // The declared design/compat prefixes carry their vocabularies (no IDE offers our xmlns
+        // URIs, so the templates preset the prefixes and the attributes complete from there).
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "d:DataContext", Kind: "attribute", Detail: "design-time" });
+        Assert.Contains(completions.Items, i => i is { Text: "d:DesignWidth", Kind: "attribute" });
+        Assert.Contains(completions.Items, i => i is { Text: "d:DesignHeight", Kind: "attribute" });
+        Assert.Contains(completions.Items, i => i is { Text: "mc:Ignorable", Kind: "attribute", Detail: "markup compatibility" });
+    }
+
+    [Fact]
+    public void Complete_offers_design_prefixes_for_mc_ignorable()
+    {
+        var extra = "xmlns:d=\"https://cursorial.dev/xaml/design\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\"";
+        var xaml = $"<StackPanel {Xmlns} {extra}>\n    <TextBlock mc:Ignorable=\"\n</StackPanel>";
+        var line2 = "    <TextBlock mc:Ignorable=\"";
+        _session.Execute(new CompleteCommand { Id = 128, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "d", Kind: "value" });
+    }
+
+    [Fact]
     public void Complete_offers_grid_length_keywords()
     {
         var xaml = $"<ColumnDefinition {Xmlns} Width=\"\n";
