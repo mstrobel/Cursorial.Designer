@@ -136,6 +136,9 @@ public sealed class HitTestCommand : PreviewCommand
 public sealed class GetPropertiesCommand : PreviewCommand
 {
     public required int ElementId { get; init; }
+
+    /// <summary>Also report properties still at their metadata defaults (normally omitted).</summary>
+    public bool? IncludeDefaults { get; init; }
 }
 
 /// <summary>

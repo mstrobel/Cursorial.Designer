@@ -38,6 +38,7 @@ class PropertyInspectorTable {
         val value: String? = null,
         val swatch: Color? = null,
         val badge: String? = null,
+        val icon: javax.swing.Icon? = null,
         val explanation: String? = null,
         val autoExpand: Boolean = false,
         val children: List<Spec> = emptyList(),
@@ -81,6 +82,7 @@ class PropertyInspectorTable {
                 leaf: Boolean, row: Int, hasFocus: Boolean,
             ) {
                 val node = value as? Node ?: return
+                icon = node.spec.icon
                 append(node.spec.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
             }
         }
@@ -169,7 +171,7 @@ class PropertyInspectorTable {
             }
 
             val changed = node.spec.value != spec.value || node.spec.badge != spec.badge
-            val nameChanged = node.spec.name != spec.name || node.spec.swatch != spec.swatch
+            val nameChanged = node.spec.name != spec.name || node.spec.swatch != spec.swatch || node.spec.icon !== spec.icon
             node.spec = spec
             if (changed) {
                 node.changedAt = System.currentTimeMillis()
@@ -243,12 +245,14 @@ class PropertyInspectorTable {
             }
         }
 
+        val sourceIcon = dev.cursorial.designer.CursorialDesignerIcons.valueSource(item.valueSource)
         return Spec(
             key = "prop:$name",
             name = name,
             value = item.value ?: "",
             swatch = CursorialPreviewEditor.parseSwatch(item.swatch),
-            badge = item.valueSource,
+            badge = if (sourceIcon == null) item.valueSource else null,
+            icon = sourceIcon,
             explanation = item.explanation,
             children = details,
         )

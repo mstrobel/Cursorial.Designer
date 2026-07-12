@@ -364,6 +364,32 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void GetProperties_includes_defaults_on_request()
+    {
+        Initialize();
+        Load($"""
+              <StackPanel {Xmlns}>
+                  <TextBlock x:Name="Title" Text="Inspect me"/>
+              </StackPanel>
+              """);
+
+        _session.Execute(new HitTestCommand { Id = 11, Column = 1, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var id = hit.Elements[0].ElementId;
+
+        _session.Execute(new GetPropertiesCommand { Id = 12, ElementId = id });
+        var withoutDefaults = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
+        Assert.DoesNotContain(withoutDefaults.Items, p => p.ValueSource == "Default");
+
+        _session.Execute(new GetPropertiesCommand { Id = 13, ElementId = id, IncludeDefaults = true });
+        var withDefaults = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
+        Assert.Contains(withDefaults.Items, p => p.ValueSource == "Default");
+        // The set/inherited rows still lead, and nothing appears twice.
+        Assert.Contains(withDefaults.Items, p => p.Name == "Text" && p.ValueSource == "Local");
+        Assert.Equal(withDefaults.Items.Count, withDefaults.Items.Select(p => $"{p.DeclaringType}.{p.Name}").Distinct().Count());
+    }
+
+    [Fact]
     public void GetProperties_reports_inherited_values_without_local_entries()
     {
         Initialize();

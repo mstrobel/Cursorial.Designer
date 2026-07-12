@@ -26,6 +26,7 @@ import com.intellij.util.Alarm
 import dev.cursorial.designer.protocol.AdvanceTimeCommand
 import dev.cursorial.designer.protocol.CellSamplesEvent
 import dev.cursorial.designer.protocol.ChildrenEvent
+import dev.cursorial.designer.CursorialDesignerIcons
 import dev.cursorial.designer.protocol.GetPropertiesCommand
 import dev.cursorial.designer.protocol.SampleCellCommand
 import dev.cursorial.designer.protocol.SetThemeCommand
@@ -199,6 +200,13 @@ class CursorialPreviewEditor(
     // chain used after a reload draws "Unknown element id (stale after reload?)". Reloads clear
     // the chain immediately and re-acquire it at the last hit cell once the new frame lands.
     private var reselectAfterLoad = false
+
+    /** Whether the NEXT hit-test answer may move the text caret (user clicks yes, automatic
+     *  post-reload re-selection no — it was yanking the caret away mid-edit). */
+    private var syncCaretOnHitTest = true
+
+    /** Whether the inspector also shows properties still at their metadata defaults. */
+    private var includeDefaults = false
     private var selectionIndex: Int = 0
 
     private val document: Document? =
@@ -272,6 +280,7 @@ class CursorialPreviewEditor(
         }
         gridPanel.hitTestListener = { column, row ->
             lastHitCell = column to row
+            syncCaretOnHitTest = true
             val id = requestIds.incrementAndGet()
             pendingHitTestId = id
             hostProcess?.sendCommand(HitTestCommand(id, column, row))
@@ -372,6 +381,7 @@ class CursorialPreviewEditor(
         if (!reselectAfterLoad) return
         reselectAfterLoad = false
         val (column, row) = lastHitCell ?: return
+        syncCaretOnHitTest = false
         val id = requestIds.incrementAndGet()
         pendingHitTestId = id
         hostProcess?.sendCommand(HitTestCommand(id, column, row))
@@ -381,7 +391,7 @@ class CursorialPreviewEditor(
         if (event.replyTo != pendingHitTestId) return
         selectionChain = event.elements
         selectionIndex = 0
-        showSelectionAt(selectionIndex)
+        showSelectionAt(selectionIndex, moveCaret = syncCaretOnHitTest)
     }
 
     /** '[' walks outward (toward the root), ']' back inward. No-op without a selection. */
@@ -391,11 +401,11 @@ class CursorialPreviewEditor(
         showSelectionAt(selectionIndex)
     }
 
-    private fun showSelectionAt(index: Int) {
+    private fun showSelectionAt(index: Int, moveCaret: Boolean = true) {
         val element = selectionChain.getOrNull(index)
         gridPanel.showSelection(element?.bounds)
         requestProperties(element)
-        val fromTemplate = syncCaret(index)
+        val fromTemplate = if (moveCaret) syncCaret(index) else false
         statusLabel.text = element?.let {
             val depth = if (selectionChain.size > 1) "  (${index + 1}/${selectionChain.size}, [ / ] to walk)" else ""
             val provenance = if (fromTemplate) "  · from template" else ""
@@ -416,7 +426,7 @@ class CursorialPreviewEditor(
 
         val id = requestIds.incrementAndGet()
         pendingPropertiesId = id
-        hostProcess?.sendCommand(GetPropertiesCommand(id, element.elementId))
+        hostProcess?.sendCommand(GetPropertiesCommand(id, element.elementId, includeDefaults))
 
         lastHitCell?.let { (column, row) ->
             val sampleId = requestIds.incrementAndGet()
@@ -491,21 +501,29 @@ class CursorialPreviewEditor(
 
     private fun buildToolbar(): JComponent {
         val group = DefaultActionGroup().apply {
-            add(object : ToggleAction("Dark", "Toggle the preview between the dark and light theme base", null) {
+            add(object : ToggleAction("Dark", "Toggle the preview between the dark and light theme base", AllIcons.MeetNewUi.DarkThemeSelected) {
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
                 override fun isSelected(e: AnActionEvent) = themeBase == ThemeBase.DARK
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
                     themeBase = if (state) ThemeBase.DARK else ThemeBase.LIGHT
                     hostProcess?.sendCommand(SetThemeCommand(themeBase = themeBase))
                 }
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.icon =
+                        if (themeBase == ThemeBase.DARK) AllIcons.MeetNewUi.DarkThemeSelected
+                        else AllIcons.MeetNewUi.LightThemeSelected
+                }
             })
             add(DefaultActionGroup("Tier", true).apply {
                 templatePresentation.description = "Preview under a specific color tier"
+                templatePresentation.icon = AllIcons.Gutter.Colors
                 for (tier in listOf("truecolor", "ansi256", "ansi16", "nocolor"))
                     add(tierAction(tier))
             })
             add(DefaultActionGroup("Terminal Profiles", true).apply {
                 templatePresentation.description = "Preview against a synthetic terminal capability profile (restarts the preview)"
+                templatePresentation.icon = CursorialDesignerIcons.TerminalProfile
                 for (profile in listOf("kitty-truecolor", "ansi16", "no-motion", "kitty-graphics", "sixel", "iterm2"))
                     add(capabilityAction(profile))
             })
@@ -522,7 +540,7 @@ class CursorialPreviewEditor(
                     e.presentation.text = if (playTimer.isRunning) "Pause" else "Play"
                 }
             })
-            add(object : ToggleAction("Select", "Clicks select elements for inspection instead of driving the app (Alt+Click always selects)", null) {
+            add(object : ToggleAction("Select", "Clicks select elements for inspection instead of driving the app (Alt+Click always selects)", CursorialDesignerIcons.SelectOff) {
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
                 override fun isSelected(e: AnActionEvent) = gridPanel.selectMode
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
@@ -533,13 +551,26 @@ class CursorialPreviewEditor(
                         statusLabel.text = ""
                     }
                 }
+                override fun update(e: AnActionEvent) {
+                    super.update(e)
+                    e.presentation.icon =
+                        if (gridPanel.selectMode) CursorialDesignerIcons.SelectOn else CursorialDesignerIcons.SelectOff
+                }
             })
-            add(object : ToggleAction("Properties", "Show the selected element's set properties with provenance", null) {
+            add(object : ToggleAction("Properties", "Show the selected element's set properties with provenance", AllIcons.FileTypes.Properties) {
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
                 override fun isSelected(e: AnActionEvent) = splitter.secondComponent != null
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
                     splitter.secondComponent = if (state) propertiesPanel else null
                     if (state) requestProperties(selectionChain.getOrNull(selectionIndex))
+                }
+            })
+            add(object : ToggleAction("Defaults", "Include properties still at their metadata defaults in the inspector", CursorialDesignerIcons.IncludeDefaults) {
+                override fun getActionUpdateThread() = ActionUpdateThread.EDT
+                override fun isSelected(e: AnActionEvent) = includeDefaults
+                override fun setSelected(e: AnActionEvent, state: Boolean) {
+                    includeDefaults = state
+                    if (splitter.secondComponent != null) requestProperties(selectionChain.getOrNull(selectionIndex))
                 }
             })
             addSeparator()

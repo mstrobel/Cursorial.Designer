@@ -100,6 +100,8 @@ data class GetPropertiesCommand(
     /** Correlation id echoed back as `replyTo` on the [PropertiesEvent]. */
     val id: Int,
     val elementId: Int,
+    /** Also report properties still at their metadata defaults (normally omitted). */
+    val includeDefaults: Boolean = false,
 ) : PreviewerCommand {
     override val type: String = "getProperties"
 }

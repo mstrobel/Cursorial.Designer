@@ -1,0 +1,17 @@
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <rect
+      style="fill:none;stroke:#CED0D6;stroke-width:1.148;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:9.18397, 3.44399;stroke-dashoffset:4.36239;stroke-opacity:1;paint-order:normal"
+      id="rect1"
+      width="12.852193"
+      height="12.852189"
+      x="1.5739033"
+      y="1.5739033" />
+    <polygon
+      clip-path="url(#SVGID_2_)"
+      points="8,13.1 8.1,13 13.2,13 5,4.8 5,16 "
+      id="polygon174"
+      transform="matrix(0.70060615,0,0,0.73315435,4.2842642,2.7278551)"
+      style="fill:#CED0D6;fill-opacity:1" />
+  </g>
+</svg>

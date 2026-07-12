@@ -806,6 +806,45 @@ internal sealed class PreviewSession : IDisposable
             });
         }
 
+        // Default-lane properties on demand: everything registered for the element's type
+        // that no lane contributes to. The set/inherited loops above covered the rest, and the
+        // Kind filter keeps the three passes disjoint by construction.
+        if (command.IncludeDefaults == true)
+        {
+            foreach (var property in UIProperties.ForType(element.GetType()))
+            {
+                if (setProperties.Contains(property))
+                    continue;
+
+                ValueSource source;
+                string? formatted;
+                string? swatch;
+                try
+                {
+                    source = element.GetValueSource(property);
+                    if (source.Kind != ValueSourceKind.Default)
+                        continue;
+                    var value = element.GetValue(property);
+                    formatted = ValueFormatter.Format(value);
+                    swatch = ValueFormatter.SwatchHex(value);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                items.Add(new PropertyEntry
+                {
+                    Name = property.Name,
+                    Value = formatted,
+                    Swatch = swatch,
+                    ValueSource = source.Kind.ToString(),
+                    DeclaringType = property.OwnerType.IsInstanceOfType(element) ? null : property.OwnerType.Name,
+                    Priority = source.Priority.ToString(),
+                });
+            }
+        }
+
         var classes = string.Join(", ", element.Classes);
         _emit(new PropertiesEvent
         {
