@@ -69,7 +69,35 @@ internal sealed class PreviewSession : IDisposable
     // content when a new document breaks on its first settle.
     private Exception? _frameException;
 
+    static PreviewSession()
+    {
+        // Design surfaces edit documents ON DISK: a relative <ResourceDictionary Source="…"/>
+        // resolves against the document's file:// URI, so the previewer's provider must read
+        // files — falling back to the standard embedded-resource lookup (cursorial://, which the
+        // user's built assemblies answer once registered). Process-global, host-owned process.
+        Cursorial.UI.Xaml.XamlModule.ResourceProvider = new DesignerXamlResourceProvider();
+    }
+
     public PreviewSession(Action<PreviewEvent> emit) => _emit = emit;
+
+    private sealed class DesignerXamlResourceProvider : Cursorial.UI.Xaml.IXamlResourceProvider
+    {
+        private readonly Cursorial.UI.Xaml.EmbeddedXamlResourceProvider _embedded = new();
+
+        public bool TryGetXaml(Uri uri, out string? xaml)
+        {
+            xaml = null;
+            if (uri.IsAbsoluteUri && uri.IsFile)
+            {
+                if (!File.Exists(uri.LocalPath))
+                    return false;
+                xaml = File.ReadAllText(uri.LocalPath);
+                return true;
+            }
+
+            return _embedded.TryGetXaml(uri, out xaml);
+        }
+    }
 
     public void Execute(PreviewCommand command)
     {
@@ -80,6 +108,16 @@ internal sealed class PreviewSession : IDisposable
                 break;
             case LoadXamlCommand load:
                 LoadXaml(load);
+                break;
+            case PointerCommand or KeyCommand or TextCommand or AdvanceTimeCommand or ResizeCommand when _host is null:
+                // Input racing a (re)initialize: transient by nature — the user clicked while the
+                // host was restarting. Dropping it beats tearing down the fresh session.
+                _emit(new LogEvent { Level = "debug", Message = $"Dropped '{command.GetType().Name}' that arrived before 'initialize'." });
+                break;
+            case HitTestCommand or DescribeElementCommand or GetChildrenCommand or GetPropertiesCommand or SampleCellCommand when _host is null:
+                // Queries racing a (re)initialize answer with a reply-bearing error so the
+                // plugin's pending correlation resolves instead of waiting out its timeout.
+                _emit(new ErrorEvent { ReplyTo = command.Id, Message = $"'{command.GetType().Name}' arrived before 'initialize' (host restarting?)." });
                 break;
             case ResizeCommand resize:
             {

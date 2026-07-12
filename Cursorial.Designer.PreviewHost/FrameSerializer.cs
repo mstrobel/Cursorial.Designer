@@ -20,6 +20,9 @@ internal static class FrameSerializer
     /// encoding, so a reduced-capability preview (ansi16, no-color) shows what that terminal
     /// could actually display rather than the pre-quantization intent.
     /// </param>
+    /// <param name="buffer">The composited cell buffer to serialize.</param>
+    /// <param name="quantizer">Optional tier quantizer (what the profiled terminal could show).</param>
+    /// <param name="lightBase">Resolve ANSI palette indices through the light-base palette.</param>
     public static FrameEvent Serialize(CellBuffer buffer, StyleQuantizer? quantizer = null, bool lightBase = false)
     {
         var styles = new List<StyleInfo>();

@@ -167,10 +167,24 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
-    public void Commands_before_initialize_fail_loudly()
+    public void Commands_before_initialize_degrade_gracefully()
     {
+        // Transient input racing a (re)initialize drops with a debug log — the user clicked
+        // while the host restarted; killing the fresh session over it is the wrong trade.
+        _session.Execute(new ResizeCommand { Columns = 10, Rows = 5 });
+        _session.Execute(new PointerCommand { Kind = "press", Column = 1, Row = 1 });
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+
+        // Queries answer with a REPLY-BEARING error so the plugin's correlation resolves
+        // instead of waiting out its timeout.
+        _session.Execute(new HitTestCommand { Id = 7, Column = 0, Row = 0 });
+        var error = Assert.IsType<ErrorEvent>(_events.Last(e => e is ErrorEvent));
+        Assert.Equal(7, error.ReplyTo);
+        Assert.Contains("initialize", error.Message);
+
+        // State commands still fail loudly — loading into no session is a programming error.
         var ex = Assert.Throws<InvalidOperationException>(
-            () => _session.Execute(new ResizeCommand { Columns = 10, Rows = 5 }));
+            () => _session.Execute(new LoadXamlCommand { Xaml = "<x/>" }));
         Assert.Contains("initialize", ex.Message);
     }
 
@@ -361,6 +375,39 @@ public class PreviewSessionTests : IDisposable
         var text = Assert.Single(properties.Items, p => p.Name == "Text");
         Assert.Equal("Inspect me", text.Value);
         Assert.Equal("Local", text.ValueSource);
+    }
+
+    [Fact]
+    public void LoadXaml_resolves_relative_resource_dictionaries_next_to_the_document()
+    {
+        // The Cursorial.Samples regression (2026-07-12): a document on disk links a sibling
+        // dictionary with a RELATIVE Source. Resolution walks document URI → file provider.
+        var dir = Directory.CreateTempSubdirectory("cursorial-designer-test-");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir.FullName, "Res.xaml"),
+                $"""<ResourceDictionary {Xmlns}><x:String x:Key="Probe">from-disk</x:String></ResourceDictionary>""");
+
+            Initialize();
+            var main = Path.Combine(dir.FullName, "Main.xaml");
+            var xaml = $$"""
+                        <StackPanel {{Xmlns}}>
+                            <StackPanel.Resources>
+                                <ResourceDictionary Source="Res.xaml"/>
+                            </StackPanel.Resources>
+                            <TextBlock Text="{StaticResource Probe}"/>
+                        </StackPanel>
+                        """;
+            _session.Execute(new LoadXamlCommand { Id = 31, Xaml = xaml, SourceUri = new Uri(main).AbsoluteUri });
+
+            var diagnostics = Assert.IsType<DiagnosticsEvent>(_events.Last(e => e is DiagnosticsEvent));
+            Assert.DoesNotContain(diagnostics.Items, d => d.Severity == "error");
+            Assert.Contains("from-disk", Fold().Lines.SelectMany(l => l).Select(r => r.Text).Aggregate((a, b) => a + b));
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
     }
 
     [Fact]
