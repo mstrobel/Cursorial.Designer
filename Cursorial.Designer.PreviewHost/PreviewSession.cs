@@ -675,7 +675,7 @@ internal sealed class PreviewSession : IDisposable
                 },
                 // The layer's carried style is the pre-quantization intent — exactly what the
                 // composition inspector wants to see.
-                Style = sample.Cell is { } cell ? FrameSerializer.ToStyleInfo(cell.Style) : null,
+                Style = sample.Cell is { } cell ? FrameSerializer.ToStyleInfo(cell.Style, LightBase(_host!)) : null,
             })
             .ToList();
 
@@ -990,12 +990,15 @@ internal sealed class PreviewSession : IDisposable
         // Still animating (e.g. an indeterminate progress bar): emit as-is; advanceTime steps it.
     }
 
+    /// <summary>Whether ANSI palette indices should resolve through the light-base palette.</summary>
+    private static bool LightBase(UIHeadlessHost host) => host.Application.RequestedThemeBase == ThemeBase.Light;
+
     private void EmitFrame()
     {
         if (_host is not { } host)
             return;
 
-        var frame = FrameSerializer.Serialize(host.FrameBuffer, _quantizer);
+        var frame = FrameSerializer.Serialize(host.FrameBuffer, _quantizer, LightBase(host));
         var delta = FrameSerializer.MakeDelta(_lastFrame, frame);
         _lastFrame = frame;
         if (delta is not null)

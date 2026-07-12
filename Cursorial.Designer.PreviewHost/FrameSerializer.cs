@@ -20,7 +20,7 @@ internal static class FrameSerializer
     /// encoding, so a reduced-capability preview (ansi16, no-color) shows what that terminal
     /// could actually display rather than the pre-quantization intent.
     /// </param>
-    public static FrameEvent Serialize(CellBuffer buffer, StyleQuantizer? quantizer = null)
+    public static FrameEvent Serialize(CellBuffer buffer, StyleQuantizer? quantizer = null, bool lightBase = false)
     {
         var styles = new List<StyleInfo>();
         var styleIndices = new Dictionary<Style, int>();
@@ -175,7 +175,7 @@ internal static class FrameSerializer
         return index;
     }
 
-    internal static StyleInfo ToStyleInfo(Style style)
+    internal static StyleInfo ToStyleInfo(Style style, bool lightBase = false)
     {
         List<string>? attrs = null;
         void Add(TextAttributes flag, string name)
@@ -197,8 +197,8 @@ internal static class FrameSerializer
         var underlined = (style.Attributes & TextAttributes.Underline) != 0;
         return new StyleInfo
         {
-            Fg = ColorHex(style.Foreground),
-            Bg = ColorHex(style.Background),
+            Fg = ColorHex(style.Foreground, lightBase),
+            Bg = ColorHex(style.Background, lightBase),
             Attrs = attrs,
             Underline = underlined && style.UnderlineStyle != UnderlineStyle.Single
                 ? style.UnderlineStyle switch
@@ -210,7 +210,7 @@ internal static class FrameSerializer
                     _ => null,
                 }
                 : null,
-            UnderlineColor = underlined && !style.UnderlineColor.IsDefault ? ColorHex(style.UnderlineColor) : null,
+            UnderlineColor = underlined && !style.UnderlineColor.IsDefault ? ColorHex(style.UnderlineColor, lightBase) : null,
             Link = style.Hyperlink.IsEmpty ? null : style.Hyperlink.Uri,
         };
     }
@@ -220,10 +220,10 @@ internal static class FrameSerializer
     /// (the viewer supplies its own default fg/bg). Palette entries resolve through the standard
     /// xterm-256 palette; alpha is dropped — cells arrive composited.
     /// </summary>
-    private static string? ColorHex(in Color color) => color.Kind switch
+    private static string? ColorHex(in Color color, bool lightBase) => color.Kind switch
     {
         ColorKind.Default => null,
-        ColorKind.Palette => XtermPalette.ToHex(color.PaletteIndex),
+        ColorKind.Palette => XtermPalette.ToHex(color.PaletteIndex, lightBase),
         _ => $"#{color.Red:x2}{color.Green:x2}{color.Blue:x2}",
     };
 
@@ -236,7 +236,13 @@ internal static class FrameSerializer
     };
 }
 
-/// <summary>The standard xterm-256 palette, for resolving indexed colors to RGB for the IDE panel.</summary>
+/// <summary>
+/// The standard xterm-256 palette, for resolving indexed colors to RGB for the IDE panel. The
+/// ANSI 0–15 block is theme-paired the way real terminal emulators pair palettes: the classic
+/// xterm values on a dark base, the VS&#160;Code Light+ values on a light base (xterm's
+/// near-white "white" #e5e5e5 vanishes on light backgrounds). The 6×6×6 cube and the grayscale
+/// ramp are absolute and identical on both bases.
+/// </summary>
 internal static class XtermPalette
 {
     private static readonly uint[] Base16 =
@@ -245,12 +251,18 @@ internal static class XtermPalette
         0x7f7f7f, 0xff0000, 0x00ff00, 0xffff00, 0x5c5cff, 0xff00ff, 0x00ffff, 0xffffff,
     ];
 
-    public static string ToHex(byte index)
+    private static readonly uint[] Base16Light =
+    [
+        0x000000, 0xcd3131, 0x00bc00, 0x949800, 0x0451a5, 0xbc05bc, 0x0598bc, 0x555555,
+        0x666666, 0xcd3131, 0x14ce14, 0xb5ba00, 0x0451a5, 0xbc05bc, 0x0598bc, 0xa5a5a5,
+    ];
+
+    public static string ToHex(byte index, bool lightBase = false)
     {
         uint rgb;
         if (index < 16)
         {
-            rgb = Base16[index];
+            rgb = (lightBase ? Base16Light : Base16)[index];
         }
         else if (index < 232)
         {

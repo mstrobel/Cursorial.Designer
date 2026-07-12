@@ -386,6 +386,20 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void Ansi_palette_pairs_with_the_theme_base()
+    {
+        // xterm's dark-base "white" (#e5e5e5) vanishes on a light background; the light base
+        // resolves ANSI indices through a light-terminal palette instead. Cube + grayscale
+        // entries are absolute on both bases.
+        Assert.Equal("#e5e5e5", XtermPalette.ToHex(7));
+        Assert.Equal("#555555", XtermPalette.ToHex(7, lightBase: true));
+        Assert.Equal("#ffffff", XtermPalette.ToHex(15));
+        Assert.Equal("#a5a5a5", XtermPalette.ToHex(15, lightBase: true));
+        Assert.Equal(XtermPalette.ToHex(196), XtermPalette.ToHex(196, lightBase: true)); // cube
+        Assert.Equal(XtermPalette.ToHex(244), XtermPalette.ToHex(244, lightBase: true)); // gray ramp
+    }
+
+    [Fact]
     public void Resize_clamps_to_the_roots_minimum_size()
     {
         Initialize();
