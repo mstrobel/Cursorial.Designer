@@ -803,6 +803,8 @@ internal static partial class EditorServices
             "StaticResource" or "DynamicResource" => ResourceKeySymbol(xaml, documentPath, token),
             "x:Reference" => NamedElementSymbol(xaml, documentPath, token),
             "x:Type" => TypeNameOrPrefixSymbol(xaml, documentPath, token, offsetInValue - start, namespaces, provider),
+            "TemplateBinding" when TemplateTargetTypeName(xaml, valueDocumentOffset + offsetInValue) is { } templateTarget
+                => MemberSymbol(templateTarget, token, namespaces, provider),
             "Binding" or "TemplateBinding" => BindingPathSymbol(xaml, valueDocumentOffset + offsetInValue, body, elementName, token, namespaces, provider),
             "RelativeSource" => RelativeSourceModeSymbol(token, namespaces, provider),
             _ => null,
@@ -1341,6 +1343,49 @@ internal static partial class EditorServices
     /// The ambient data-context type at a position: the nearest enclosing tag carrying
     /// <c>DataTemplate DataType="…"</c> or <c>d:DataContext="…"</c>, innermost first.
     /// </summary>
+    /// <summary>
+    /// The TargetType NAME of the nearest enclosing <c>ControlTemplate</c> (falling back to the
+    /// nearest enclosing <c>Style</c>) — what a <c>{TemplateBinding}</c> binds against.
+    /// </summary>
+    internal static string? TemplateTargetTypeName(string blanked, int offset)
+    {
+        var stack = new Stack<Match>();
+        foreach (Match tag in TagToken().Matches(blanked))
+        {
+            if (tag.Index >= offset)
+                break;
+
+            var closing = tag.Groups[1].Value.Length > 0;
+            var selfClosed = tag.Groups[4].Value.Length > 0;
+            if (closing)
+            {
+                if (stack.Count > 0)
+                    stack.Pop();
+            }
+            else if (!selfClosed)
+            {
+                stack.Push(tag);
+            }
+        }
+
+        string? styleFallback = null;
+        foreach (var tag in stack) // innermost first
+        {
+            var name = tag.Groups[2].Value;
+            if (name is not ("ControlTemplate" or "Style"))
+                continue;
+
+            var target = Regex.Match(tag.Groups[3].Value, "\\bTargetType\\s*=\\s*\\\"([^\\\"]+)\\\"");
+            if (!target.Success)
+                continue;
+            if (name == "ControlTemplate")
+                return target.Groups[1].Value;
+            styleFallback ??= target.Groups[1].Value;
+        }
+
+        return styleFallback;
+    }
+
     private static Type? AmbientDataContextType(string blanked, int offset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var designPrefixes = namespaces.Where(n => DesignUris.Contains(n.Value)).Select(n => n.Key).ToList();

@@ -896,6 +896,25 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Complete_offers_target_members_for_template_binding()
+    {
+        var xaml = $$"""
+                    <StackPanel {{Xmlns}}>
+                        <Style Selector="Expander" TargetType="Expander">
+                            <Setter Property="Template">
+                                <ControlTemplate TargetType="Expander">
+                                    <Border Background="{TemplateBinding 
+                    """;
+        var caretLine = "                                <Border Background=\"{TemplateBinding ";
+        _session.Execute(new CompleteCommand { Id = 133, Xaml = xaml, Line = 5, Column = caretLine.Length + 1 });
+
+        // The bindable names are the enclosing ControlTemplate's TargetType members.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "IsExpanded", Detail: "Expander" });
+        Assert.Contains(completions.Items, i => i is { Text: "Header" });
+    }
+
+    [Fact]
     public void Complete_offers_grid_length_keywords()
     {
         var xaml = $"<ColumnDefinition {Xmlns} Width=\"\n";

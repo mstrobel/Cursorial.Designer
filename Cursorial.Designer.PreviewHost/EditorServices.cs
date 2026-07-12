@@ -776,6 +776,20 @@ internal static partial class EditorServices
             case "x:Type":
                 return TypeNameItems(argument, namespaces, provider);
 
+            case "TemplateBinding":
+            {
+                // The bindable names are the enclosing template's TargetType members (Style
+                // TargetType as the fallback for templates authored inside setters).
+                var templateTarget = TemplateTargetTypeName(xaml, caretOffset);
+                var targetType = templateTarget is null ? null : ResolveElement(templateTarget, namespaces, provider);
+                if (targetType is null)
+                    return [];
+
+                return provider.GetKnownMemberNames(targetType.ClrType)
+                    .Select(member => new CompletionItemInfo { Text = member, Kind = "value", Detail = templateTarget })
+                    .ToList();
+            }
+
             case "x:Reference":
                 return NamedElementItems(xaml);
 
