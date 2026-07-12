@@ -364,6 +364,42 @@ public class PreviewSessionTests : IDisposable
     }
 
     [Fact]
+    public void DescribeElement_refreshes_bounds_after_resize()
+    {
+        Initialize();
+        Load($"""<DockPanel {Xmlns}><Button Content="X" HorizontalAlignment="Right" VerticalAlignment="Top"/></DockPanel>""");
+
+        _session.Execute(new HitTestCommand { Id = 21, Column = 58, Row = 0 });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var button = Assert.Single(hit.Elements, e => e.ElementType == "Button");
+
+        _session.Execute(new ResizeCommand { Columns = 40, Rows = 16 });
+        _session.Execute(new DescribeElementCommand { Id = 22, ElementId = button.ElementId });
+
+        // Same identity, fresh geometry: the right-aligned button followed the narrower surface.
+        var described = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        Assert.Equal(22, described.ReplyTo);
+        var refreshed = Assert.Single(described.Elements, e => e.ElementType == "Button");
+        Assert.Equal(button.ElementId, refreshed.ElementId);
+        Assert.True(refreshed.Bounds.Column < button.Bounds.Column,
+            $"expected the button to move left of {button.Bounds.Column}, got {refreshed.Bounds.Column}");
+    }
+
+    [Fact]
+    public void Resize_clamps_to_the_roots_minimum_size()
+    {
+        Initialize();
+        Load($"""<StackPanel {Xmlns} MinWidth="50" MinHeight="10"><TextBlock Text="wide"/></StackPanel>""");
+
+        _session.Execute(new ResizeCommand { Columns = 30, Rows = 8 });
+
+        // The frame reports the ACTUAL surface size — the IDE scrolls the overflow.
+        var frame = Assert.IsType<FrameEvent>(_events.Last(e => e is FrameEvent));
+        Assert.Equal(50, frame.Columns);
+        Assert.Equal(10, frame.Rows);
+    }
+
+    [Fact]
     public void GetProperties_includes_defaults_on_request()
     {
         Initialize();
@@ -387,6 +423,14 @@ public class PreviewSessionTests : IDisposable
         // The set/inherited rows still lead, and nothing appears twice.
         Assert.Contains(withDefaults.Items, p => p.Name == "Text" && p.ValueSource == "Local");
         Assert.Equal(withDefaults.Items.Count, withDefaults.Items.Select(p => $"{p.DeclaringType}.{p.Name}").Distinct().Count());
+
+        // A declared member no theme touches sits in the default lane, unqualified. (The
+        // AddOwner-surfacing that motivated this sweep — TextBlock.Foreground — is pinned in
+        // the framework's UIPropertiesTests; its lane here shifts with theme styling.)
+        var visibility = Assert.Single(withDefaults.Items, p => p.Name == "Visibility");
+        Assert.Null(visibility.DeclaringType);
+        Assert.Equal("Default", visibility.ValueSource);
+        Assert.Contains(withDefaults.Items, p => p.Name == "Foreground"); // some lane, always present
     }
 
     [Fact]
@@ -394,7 +438,7 @@ public class PreviewSessionTests : IDisposable
     {
         Initialize();
         Load($"""
-              <StackPanel {Xmlns} TextElement.Foreground="#ff8800">
+              <StackPanel {Xmlns} TextElement.TextAttributes="Bold">
                   <TextBlock x:Name="Child" Text="inheriting"/>
               </StackPanel>
               """);
@@ -406,12 +450,14 @@ public class PreviewSessionTests : IDisposable
         _session.Execute(new GetPropertiesCommand { Id = 82, ElementId = textId });
         var properties = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
 
-        // The child never sets Foreground; the value flows from the ancestor. GetSetProperties
+        // The child never sets TextAttributes; the value flows from the ancestor. GetSetProperties
         // excludes inherited-only contributions by design — the registry's inheriting set
         // (UIProperties.Inheriting, framework PR #17) is how the inspector knows to ask.
-        var foreground = Assert.Single(properties.Items, p => p.Name == "Foreground");
-        Assert.Equal("Inherited", foreground.ValueSource);
-        Assert.Equal("TextElement", foreground.DeclaringType);
+        // (TextAttributes rather than Foreground: no theme touches it, so the lane is stable.)
+        var attrs = Assert.Single(properties.Items, p => p.Name == "TextAttributes");
+        Assert.Equal("Inherited", attrs.ValueSource);
+        // True attached usage (no TextBlock AddOwner) keeps the owner qualification.
+        Assert.Equal("TextElement", attrs.DeclaringType);
     }
 
     [Fact]

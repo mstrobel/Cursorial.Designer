@@ -82,9 +82,16 @@ internal sealed class PreviewSession : IDisposable
                 LoadXaml(load);
                 break;
             case ResizeCommand resize:
-                Host(command).SendResize(resize.Columns, resize.Rows);
+            {
+                // Never squish the surface below the loaded root's declared minimum — the frame
+                // reports its actual size and the IDE scrolls the overflow instead of clipping.
+                var root = _container?.Child;
+                var columns = Math.Max(resize.Columns, root?.GetValue(UIElement.MinWidthProperty) ?? 0);
+                var rows = Math.Max(resize.Rows, root?.GetValue(UIElement.MinHeightProperty) ?? 0);
+                Host(command).SendResize(columns, rows);
                 SettleAndEmitFrame();
                 break;
+            }
             case PointerCommand pointer:
                 Pointer(pointer);
                 break;
@@ -101,6 +108,9 @@ internal sealed class PreviewSession : IDisposable
                 break;
             case HitTestCommand hitTest:
                 HitTest(hitTest);
+                break;
+            case DescribeElementCommand describe:
+                DescribeElement(describe);
                 break;
             case GetChildrenCommand children:
                 GetChildren(children);
@@ -605,6 +615,22 @@ internal sealed class PreviewSession : IDisposable
         _emit(new HitTestResultEvent { ReplyTo = command.Id, Elements = elements });
     }
 
+    private void DescribeElement(DescribeElementCommand command)
+    {
+        _ = Host(command);
+        if (command.ElementId < 0 || command.ElementId >= _elementsById.Count)
+        {
+            _emit(new ErrorEvent { ReplyTo = command.Id, Message = $"Unknown element id {command.ElementId} (stale after reload?)." });
+            return;
+        }
+
+        var elements = new List<ElementRef>();
+        for (var element = _elementsById[command.ElementId]; element is not null && !ReferenceEquals(element, _container); element = element.VisualParent)
+            elements.Add(MakeElementRef(element));
+
+        _emit(new HitTestResultEvent { ReplyTo = command.Id, Elements = elements });
+    }
+
     private void GetChildren(GetChildrenCommand command)
     {
         _ = Host(command);
@@ -679,6 +705,18 @@ internal sealed class PreviewSession : IDisposable
         };
     }
 
+    /// <summary>
+    /// The type qualification for a property row, or null when the name is addressable as a plain
+    /// member of the element's own type — declared, inherited, or AddOwner'd (TextBlock.Foreground
+    /// needs no "TextElement." prefix; Grid.Row on a Button keeps "Grid.").
+    /// </summary>
+    private static string? DeclaringTypeFor(UIElement element, UIProperty property)
+    {
+        if (property.OwnerType.IsInstanceOfType(element) || UIProperties.Find(element.GetType(), property.Name) == property)
+            return null;
+        return property.OwnerType.Name;
+    }
+
     private void GetProperties(GetPropertiesCommand command)
     {
         _ = Host(command);
@@ -749,7 +787,7 @@ internal sealed class PreviewSession : IDisposable
                 Value = ValueFormatter.Format(element.GetValue(property)),
                 Swatch = ValueFormatter.SwatchHex(element.GetValue(property)),
                 ValueSource = source.Kind.ToString(),
-                DeclaringType = property.OwnerType.IsInstanceOfType(element) ? null : property.OwnerType.Name,
+                DeclaringType = DeclaringTypeFor(element, property),
                 Explanation = explanation,
                 Priority = source.Priority.ToString(),
                 BasePriority = source.BasePriority != source.Priority ? source.BasePriority.ToString() : null,
@@ -798,7 +836,7 @@ internal sealed class PreviewSession : IDisposable
                 Value = ValueFormatter.Format(element.GetValue(property)),
                 Swatch = ValueFormatter.SwatchHex(element.GetValue(property)),
                 ValueSource = source.Kind.ToString(),
-                DeclaringType = property.OwnerType.IsInstanceOfType(element) ? null : property.OwnerType.Name,
+                DeclaringType = DeclaringTypeFor(element, property),
                 Explanation = explanation,
                 Priority = source.Priority.ToString(),
                 BasePriority = source.BasePriority != source.Priority ? source.BasePriority.ToString() : null,
@@ -839,7 +877,7 @@ internal sealed class PreviewSession : IDisposable
                     Value = formatted,
                     Swatch = swatch,
                     ValueSource = source.Kind.ToString(),
-                    DeclaringType = property.OwnerType.IsInstanceOfType(element) ? null : property.OwnerType.Name,
+                    DeclaringType = DeclaringTypeFor(element, property),
                     Priority = source.Priority.ToString(),
                 });
             }

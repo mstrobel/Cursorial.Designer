@@ -33,6 +33,8 @@ the session survives errors and keeps rendering the previous content.
 {"type":"advanceTime","milliseconds":100}  // drives the frozen clock (animations)
 {"type":"hitTest","id":7,"column":5,"row":2}
 {"type":"getChildren","id":9,"elementId":3}   // descend below a hit-test anchor / explore siblings
+{"type":"describeElement","id":12,"elementId":3}  // re-answers hitTestResult with FRESH bounds
+                                           // (selection refresh after resize/relayout)
 {"type":"getProperties","id":8,"elementId":3}  // includeDefaults:true adds default-lane rows
 {"type":"sampleCell","id":10,"column":5,"row":2}  // per-cell composition inspector
 {"type":"analyze","id":11,"xaml":"<…>","sourceUri":"file:///…",

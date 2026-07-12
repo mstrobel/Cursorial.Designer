@@ -96,6 +96,14 @@ data class HitTestCommand(
     override val type: String = "hitTest"
 }
 
+data class DescribeElementCommand(
+    /** Correlation id echoed back as `replyTo` on the answering [HitTestResultEvent]. */
+    val id: Int,
+    val elementId: Int,
+) : PreviewerCommand {
+    override val type: String = "describeElement"
+}
+
 data class GetPropertiesCommand(
     /** Correlation id echoed back as `replyTo` on the [PropertiesEvent]. */
     val id: Int,

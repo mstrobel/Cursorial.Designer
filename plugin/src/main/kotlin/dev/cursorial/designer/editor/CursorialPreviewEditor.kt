@@ -27,6 +27,7 @@ import dev.cursorial.designer.protocol.AdvanceTimeCommand
 import dev.cursorial.designer.protocol.CellSamplesEvent
 import dev.cursorial.designer.protocol.ChildrenEvent
 import dev.cursorial.designer.CursorialDesignerIcons
+import dev.cursorial.designer.protocol.DescribeElementCommand
 import dev.cursorial.designer.protocol.GetPropertiesCommand
 import dev.cursorial.designer.protocol.SampleCellCommand
 import dev.cursorial.designer.protocol.SetThemeCommand
@@ -274,6 +275,13 @@ class CursorialPreviewEditor(
 
         gridPanel.resizeListener = { columns, rows ->
             hostProcess?.sendCommand(ResizeCommand(columns, rows))
+            // Relayout moves elements: refresh the selection overlay (never the caret).
+            selectionChain.getOrNull(selectionIndex)?.let { selected ->
+                val id = requestIds.incrementAndGet()
+                pendingHitTestId = id
+                syncCaretOnHitTest = false
+                hostProcess?.sendCommand(DescribeElementCommand(id, selected.elementId))
+            }
         }
         gridPanel.pointerListener = { kind, column, row, button ->
             hostProcess?.sendCommand(PointerCommand(kind, column, row, button))

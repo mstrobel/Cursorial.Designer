@@ -18,6 +18,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(AdvanceTimeCommand), "advanceTime")]
 [JsonDerivedType(typeof(HitTestCommand), "hitTest")]
 [JsonDerivedType(typeof(GetChildrenCommand), "getChildren")]
+[JsonDerivedType(typeof(DescribeElementCommand), "describeElement")]
 [JsonDerivedType(typeof(GetPropertiesCommand), "getProperties")]
 [JsonDerivedType(typeof(SampleCellCommand), "sampleCell")]
 [JsonDerivedType(typeof(AnalyzeCommand), "analyze")]
@@ -139,6 +140,16 @@ public sealed class GetPropertiesCommand : PreviewCommand
 
     /// <summary>Also report properties still at their metadata defaults (normally omitted).</summary>
     public bool? IncludeDefaults { get; init; }
+}
+
+/// <summary>
+/// Re-describe a previously hit-tested element: answered by a <c>hitTestResult</c> event carrying
+/// the element's ancestor chain with FRESH bounds. The selection-overlay refresh after a resize —
+/// element identity survives relayout, but positions don't.
+/// </summary>
+public sealed class DescribeElementCommand : PreviewCommand
+{
+    public required int ElementId { get; init; }
 }
 
 /// <summary>
