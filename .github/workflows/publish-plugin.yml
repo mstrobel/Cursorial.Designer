@@ -1,0 +1,69 @@
+# Publishes the Rider plugin to JetBrains Marketplace on a `plugin-v*` tag push
+# (plugin-v0.1.0 → plugin version 0.1.0). The FIRST release must be uploaded manually through
+# plugins.jetbrains.com (moderation creates the listing); this workflow handles every update.
+#
+# Requirements:
+#   - Repo secret MARKETPLACE_TOKEN: a Personal Access Token from plugins.jetbrains.com.
+#   - The Cursorial framework repo checked out as a SIBLING: the preview host builds by
+#     ProjectReference into ../Cursorial (bundled into the plugin zip by prepareSandbox).
+#     Pinned to the framework's main branch — pin a tag below when releases need to be
+#     reproducible against a specific framework version.
+
+name: Publish Plugin
+
+on:
+  push:
+    tags:
+      - 'plugin-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+    steps:
+      - name: Checkout designer
+        uses: actions/checkout@v5
+        with:
+          path: Cursorial.Designer
+
+      - name: Checkout framework (sibling)
+        uses: actions/checkout@v5
+        with:
+          repository: mstrobel/Cursorial
+          ref: main
+          path: Cursorial
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          # refs/tags/plugin-v0.1.0 → 0.1.0
+          VERSION="${GITHUB_REF#refs/tags/plugin-v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing plugin version: $VERSION"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: Cursorial.Designer/global.json
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Run .NET tests
+        run: dotnet test Cursorial.Designer/Cursorial.Designer.PreviewHost.Tests
+
+      - name: Publish to JetBrains Marketplace
+        working-directory: Cursorial.Designer/plugin
+        env:
+          MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+        run: ./gradlew publishPlugin -PpluginVersion=${{ steps.version.outputs.version }} --no-daemon

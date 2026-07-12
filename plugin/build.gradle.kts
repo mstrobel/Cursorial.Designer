@@ -45,6 +45,21 @@ intellijPlatform {
 
     // No settings pages with searchable options yet; skip the (slow) index build.
     buildSearchableOptions = false
+
+    publishing {
+        // Marketplace Personal Access Token (plugins.jetbrains.com → My Tokens). Local publishes:
+        // MARKETPLACE_TOKEN=... ./gradlew publishPlugin — CI injects it from a repo secret.
+        token = providers.environmentVariable("MARKETPLACE_TOKEN")
+    }
+
+    pluginVerification {
+        // ./gradlew verifyPlugin — runs the JetBrains Plugin Verifier against IDE builds matching
+        // the since/until range. Point at a specific EAP with ides { ide("RD", "2026.2-EAP1") }
+        // when pre-flighting the next release train.
+        ides {
+            recommended()
+        }
+    }
 }
 
 // The .NET preview host, published framework-dependent + portable: ONE output runs on any OS
