@@ -565,7 +565,7 @@ class CursorialPreviewEditor(
                     if (state) requestProperties(selectionChain.getOrNull(selectionIndex))
                 }
             })
-            add(object : ToggleAction("Defaults", "Include properties still at their metadata defaults in the inspector", CursorialDesignerIcons.IncludeDefaults) {
+            add(object : ToggleAction("Defaults", "Show properties with default values", CursorialDesignerIcons.IncludeDefaults) {
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
                 override fun isSelected(e: AnActionEvent) = includeDefaults
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
