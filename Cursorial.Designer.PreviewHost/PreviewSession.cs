@@ -76,7 +76,28 @@ internal sealed class PreviewSession : IDisposable
         // files — falling back to the standard embedded-resource lookup (cursorial://, which the
         // user's built assemblies answer once registered). Process-global, host-owned process.
         Cursorial.UI.Xaml.XamlModule.ResourceProvider = DesignerResources;
+
+        // In-project x:Class views (a UserControl instantiated inside the previewed document)
+        // live-source their XAML from disk too: LoadComponent consults this hook before using
+        // the document baked at build time, so markup edits reflect WITHOUT a rebuild. Reads
+        // record into the same dependency list, so the IDE's watcher reloads on save.
+        Cursorial.UI.Xaml.XamlModule.LiveXamlSource =
+            uri => DesignerResources.TryGetLiveXaml(uri, out var xaml) ? xaml : null;
+
+        // Live-parsed documents (and everything else the DESIGNER parses) use the REFLECTION
+        // provider: user apps install their closed-set provider as the process default via a
+        // generated module initializer, and a closed set only knows compile-seen types — the
+        // opposite of what a live preview needs. Capture reflection NOW (before any user
+        // assembly loads), pin XamlLoader.Shared to it (first touch captures the ambient
+        // default), and hand live parsing a dedicated loader.
+        HostMetadataProvider = Cursorial.UI.Xaml.XamlLoaderOptions.DefaultMetadataProvider;
+        _ = Cursorial.UI.Xaml.XamlLoader.Shared;
+        Cursorial.UI.Xaml.XamlModule.LiveXamlLoader = new Cursorial.UI.Xaml.XamlLoader(
+            new Cursorial.UI.Xaml.XamlLoaderOptions { MetadataProvider = HostMetadataProvider });
     }
+
+    /// <summary>The host's reflection metadata provider, captured before any user assembly loads.</summary>
+    private static readonly IXamlTypeMetadataProvider HostMetadataProvider;
 
     /// <summary>The previewer's resource provider — also the per-load dependency recorder.</summary>
     private static readonly DesignerXamlResourceProvider DesignerResources = new();
@@ -95,6 +116,20 @@ internal sealed class PreviewSession : IDisposable
 
         public bool TryGetXaml(Uri uri, out string? xaml)
         {
+            if (TryGetLiveXaml(uri, out xaml))
+                return true;
+
+            return uri.IsAbsoluteUri && _embedded.TryGetXaml(uri, out xaml);
+        }
+
+        /// <summary>
+        /// The LIVE half of resolution: file URIs read directly; cursorial://-style references
+        /// probe the current document's ancestors for the URI's path portion (the same
+        /// convention navigation uses) — the designer previews what the user is editing, not
+        /// what the last build embedded. Also the LoadComponent live-source hook.
+        /// </summary>
+        public bool TryGetLiveXaml(Uri uri, out string? xaml)
+        {
             xaml = null;
             if (!uri.IsAbsoluteUri)
                 return false;
@@ -102,10 +137,6 @@ internal sealed class PreviewSession : IDisposable
             if (uri.IsFile)
                 return TryReadFile(uri.LocalPath, out xaml);
 
-            // Live-over-baked: a cursorial://-style reference whose path exists in the project
-            // (probed from the document's ancestors, the same convention navigation uses) reads
-            // the FILE — the designer previews what the user is editing, not what the last
-            // build embedded. Misses fall through to the embedded lookup.
             if (DocumentDirectory is { } root
                 && (string.Equals(uri.Scheme, "cursorial", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(uri.Scheme, "embedded", StringComparison.OrdinalIgnoreCase)))
@@ -118,7 +149,7 @@ internal sealed class PreviewSession : IDisposable
                 }
             }
 
-            return _embedded.TryGetXaml(uri, out xaml);
+            return false;
         }
 
         private bool TryReadFile(string path, out string? xaml)
