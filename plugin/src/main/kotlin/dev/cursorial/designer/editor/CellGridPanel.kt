@@ -35,6 +35,18 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
     /** Called when the panel's size, measured in cells, changes. Send a `resize` command. */
     var resizeListener: ((columns: Int, rows: Int) -> Unit)? = null
 
+    /**
+     * Pairs the terminal-default fg/bg with the PREVIEW's theme base rather than the IDE editor
+     * scheme: a light-base preview inside a dark IDE must still read like a light terminal.
+     * Values match the host's base-paired ANSI palettes (classic xterm dark / Light+ light).
+     */
+    var lightBase: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            repaint()
+        }
+
     /** Called for mouse activity over the grid. Send a `pointer` command. */
     var pointerListener: ((kind: String, column: Int, row: Int, button: String?) -> Unit)? = null
 
@@ -258,9 +270,8 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
         try {
             GraphicsUtil.setupAntialiasing(g2)
 
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            val defaultBg = scheme.defaultBackground
-            val defaultFg = scheme.defaultForeground
+            val defaultBg = if (lightBase) LIGHT_DEFAULT_BG else DARK_DEFAULT_BG
+            val defaultFg = if (lightBase) LIGHT_DEFAULT_FG else DARK_DEFAULT_FG
 
             g2.color = defaultBg
             g2.fillRect(0, 0, width, height)
@@ -503,6 +514,12 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
     }
 
     companion object {
+        // Terminal-default colors, paired with the preview theme base (see lightBase).
+        private val DARK_DEFAULT_BG = Color(0x1e1e1e)
+        private val DARK_DEFAULT_FG = Color(0xe5e5e5)
+        private val LIGHT_DEFAULT_BG = Color(0xffffff)
+        private val LIGHT_DEFAULT_FG = Color(0x333333)
+
         const val DEFAULT_COLUMNS = 80
         const val DEFAULT_ROWS = 24
 

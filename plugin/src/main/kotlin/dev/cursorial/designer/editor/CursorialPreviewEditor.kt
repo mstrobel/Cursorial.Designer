@@ -273,6 +273,7 @@ class CursorialPreviewEditor(
             process.start()
         }
 
+        gridPanel.lightBase = themeBase == ThemeBase.LIGHT
         gridPanel.resizeListener = { columns, rows ->
             hostProcess?.sendCommand(ResizeCommand(columns, rows))
             // Relayout moves elements: refresh the selection overlay (never the caret).
@@ -514,6 +515,7 @@ class CursorialPreviewEditor(
                 override fun isSelected(e: AnActionEvent) = themeBase == ThemeBase.DARK
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
                     themeBase = if (state) ThemeBase.DARK else ThemeBase.LIGHT
+                    gridPanel.lightBase = themeBase == ThemeBase.LIGHT
                     hostProcess?.sendCommand(SetThemeCommand(themeBase = themeBase))
                 }
                 override fun update(e: AnActionEvent) {
