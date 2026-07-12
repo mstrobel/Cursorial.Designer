@@ -47,6 +47,23 @@ intellijPlatform {
     buildSearchableOptions = false
 }
 
+// The .NET preview host, published framework-dependent + portable: ONE output runs on any OS
+// with a .NET 10 runtime (the plugin launches it as `dotnet <dll>`). Bundled under the plugin's
+// dotnet/ directory in both the runIde sandbox and the buildPlugin zip, so a from-disk install
+// works on machines without this repository.
+val publishPreviewHost by tasks.registering(Exec::class) {
+    group = "build"
+    description = "dotnet-publishes Cursorial.Designer.PreviewHost for bundling into the plugin."
+    workingDir = projectDir.parentFile
+    val output = layout.buildDirectory.dir("previewHost")
+    outputs.dir(output)
+    commandLine(
+        "dotnet", "publish", "Cursorial.Designer.PreviewHost",
+        "-c", "Release",
+        "-o", output.get().asFile.absolutePath,
+    )
+}
+
 tasks {
     runIde {
         jvmArgs("-Xmx2g")
@@ -57,6 +74,11 @@ tasks {
     }
 
     prepareSandbox {
+        dependsOn(publishPreviewHost)
+        from(layout.buildDirectory.dir("previewHost")) {
+            into(pluginName.get() + "/dotnet")
+        }
+
         // Make the sandbox feel like home: seed the developer's real Rider keymaps (once — the
         // sandbox stays authoritative for its own edits afterwards) and re-seed keymap-bearing
         // plugins EVERY run, because prepareSandbox rebuilds the plugins directory and would

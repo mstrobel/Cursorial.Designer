@@ -1,7 +1,9 @@
 package dev.cursorial.designer.settings
 
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.nio.file.Files
@@ -54,5 +56,17 @@ class CursorialDesignerSettings(private val project: Project) {
         return roots
             .map { Paths.get(it, DEFAULT_HOST_RELATIVE_PATH) }
             .firstOrNull { Files.isRegularFile(it) }
+            ?: bundledHostDll()
+    }
+
+    /**
+     * The host published INTO the plugin distribution (buildPlugin bundles it under dotnet/) —
+     * what a from-disk install on a machine without this repository runs. Probed LAST so a dev
+     * checkout's freshly built Debug host still wins over the bundled Release copy.
+     */
+    private fun bundledHostDll(): Path? {
+        val plugin = PluginManagerCore.getPlugin(PluginId.getId("dev.cursorial.designer")) ?: return null
+        val bundled = plugin.pluginPath.resolve("dotnet").resolve("Cursorial.Designer.PreviewHost.dll")
+        return bundled.takeIf { Files.isRegularFile(it) }
     }
 }

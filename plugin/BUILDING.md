@@ -98,17 +98,30 @@ keymaps with it. The build seeds the developer's real Rider keymaps (once) and r
 IDE with Cmd+Q rather than Ctrl+C on Gradle, or freshly-changed settings may never flush to
 disk. Verified persisting across shutdown/relaunch 2026-07-11.
 
+## Packaging for local installs
+
+`./gradlew buildPlugin` produces `build/distributions/cursorial-designer-<version>.zip` — a
+single OS-independent distribution. The build `dotnet publish`es the PreviewHost
+(framework-dependent, portable) and bundles it under `dotnet/` inside the plugin, so the zip
+works on machines that do not have this repository.
+
+Install on any machine via **Settings → Plugins → ⚙ → Install Plugin from Disk…** and restart.
+
+Target machine requirements:
+
+- Rider 2026.1+ (`sinceBuild = 261`).
+- A .NET 10 runtime with `dotnet` on the PATH — the plugin launches the bundled host as
+  `dotnet Cursorial.Designer.PreviewHost.dll` (one portable publish covers Windows/Linux/macOS).
+
+Host resolution order at runtime: the `CURSORIAL_PREVIEWHOST_DLL` env override → a Debug build
+found in the opened solution or its ancestors (the dev loop, self-refresh included) → the copy
+bundled in the plugin installation. Dev machines with this repo keep using their fresh local
+build; everyone else runs the bundled Release host.
+
 **Not verified / review before shipping:**
 
-- The plugin has not been exercised inside a running Rider (no `runIde` smoke test).
-- `JBColor.isBright()` as the light/dark theme signal (`// TODO(verify)` in
-  `CursorialPreviewEditor`); no reaction to runtime theme changes yet.
-- Cheap `accept()` detection reads file bytes on every call — works, but should be
-  cached by modification stamp.
-- The Cursorial PreviewHost does not exist yet; the whole protocol flow
-  (initialize/loadXaml/frame) compiles against the DTOs but has never spoken to a real
-  host. The stdout line-splitting handles chunked delivery, but ordering between stdout
-  and stderr callbacks is only as good as `OSProcessHandler` provides.
+- `JBColor.isBright()` as the INITIAL light/dark theme signal in `CursorialPreviewEditor`;
+  no reaction to runtime IDE theme changes yet (the in-preview toggle covers the rest).
 - Gson maps events reflectively; fields the host omits will surface as `null` even in
   non-null Kotlin declarations (documented in `ProtocolMessages.kt`).
 - `sinceBuild = "261"` / default `untilBuild` (261.*) — widen once tested on newer IDEs.
