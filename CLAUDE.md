@@ -18,9 +18,9 @@ live in `Cursorial.Designer.Protocol`.
 - **Never modify the main Cursorial checkout.** When designer work needs a framework-side change,
   create a branch in a git worktree inside the Cursorial repo (`git worktree add
   .worktrees/<branch> -b <branch>`) and make the change there.
-- The preview host builds on `Cursorial.UI.Hosting.Headless` (headless `UIHeadlessHost`) — it is the
-  framework's own test substrate, deliberately unpublished on NuGet; the ProjectReference is the
-  sanctioned way in.
+- The preview host builds on `Cursorial.UI.Hosting.Headless` (headless `UIHeadlessHost`) —
+  published on NuGet since v0.4.0, but this repo consumes it by ProjectReference so designer work
+  always tracks the sibling checkout, unreleased framework changes included.
 - Key framework facts that shape this repo: `UIHeadlessHost.Create` makes the *calling thread* the UI
   thread and every framework API the session touches (`HitTest`, `GetValue`, theme setters) is
   affine to it; `XamlLoader` with `XamlDiagnosticMode.CollectAll` never throws on parse
