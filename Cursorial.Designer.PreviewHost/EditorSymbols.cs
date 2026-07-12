@@ -1386,6 +1386,79 @@ internal static partial class EditorServices
         return styleFallback;
     }
 
+    /// <summary>
+    /// The type a <c>Setter</c> at <paramref name="offset"/> configures: the nearest enclosing
+    /// <c>Style</c>'s <c>TargetType</c>, falling back to its <c>Selector</c>'s leading type token.
+    /// </summary>
+    internal static string? SetterTargetTypeName(string blanked, int offset)
+    {
+        var stack = new Stack<Match>();
+        foreach (Match tag in TagToken().Matches(blanked))
+        {
+            if (tag.Index >= offset)
+                break;
+
+            var closing = tag.Groups[1].Value.Length > 0;
+            var selfClosed = tag.Groups[4].Value.Length > 0;
+            if (closing)
+            {
+                if (stack.Count > 0)
+                    stack.Pop();
+            }
+            else if (!selfClosed)
+            {
+                stack.Push(tag);
+            }
+        }
+
+        foreach (var tag in stack) // innermost first — the nearest Style owns the Setter
+        {
+            if (tag.Groups[2].Value is not ("Style" or "ControlTemplate"))
+                continue;
+
+            var attrs = tag.Groups[3].Value;
+            var target = Regex.Match(attrs, "\\bTargetType\\s*=\\s*\\\"([^\\\"]+)\\\"");
+            if (target.Success)
+                return target.Groups[1].Value;
+
+            var selector = Regex.Match(attrs, "\\bSelector\\s*=\\s*\\\"\\s*\\^?\\s*([A-Za-z_]\\w*)");
+            if (selector.Success)
+                return selector.Groups[1].Value;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The raw value of an attribute on the tag containing <paramref name="offset"/>, or null.
+    /// Works on the UNTERMINATED tag being typed (mid-edit has no closing <c>&gt;</c> yet):
+    /// scans from the nearest <c>&lt;</c> to the first unquoted close or end of text.
+    /// </summary>
+    internal static string? ContainingTagAttribute(string blanked, int offset, string attributeName)
+    {
+        var open = blanked.LastIndexOf('<', Math.Clamp(offset - 1, 0, Math.Max(0, blanked.Length - 1)));
+        if (open < 0)
+            return null;
+
+        var end = blanked.Length;
+        var quoted = false;
+        for (var i = open + 1; i < blanked.Length; i++)
+        {
+            if (blanked[i] == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (blanked[i] == '>' && !quoted)
+            {
+                end = i;
+                break;
+            }
+        }
+
+        var match = Regex.Match(blanked[open..end], "\\b" + Regex.Escape(attributeName) + "\\s*=\\s*\\\"([^\\\"]*)\\\"");
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
     private static Type? AmbientDataContextType(string blanked, int offset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var designPrefixes = namespaces.Where(n => DesignUris.Contains(n.Value)).Select(n => n.Key).ToList();

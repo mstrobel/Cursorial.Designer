@@ -200,18 +200,21 @@ internal static partial class EditorServices
                     var owner = ResolveElement(ownerName, namespaces, provider);
                     if (owner is not null)
                     {
+                        // BARE names: the buffer already carries "Owner." and the IDE's prefix
+                        // breaks at the dot — a qualified insert would double the owner
+                        // (ToggleButton.ToggleButton.Template).
                         var ownerIsParent = string.Equals(ownerName, context.ParentElement, StringComparison.Ordinal);
                         if (ownerIsParent)
                         {
                             foreach (var member in provider.GetKnownMemberNames(owner.ClrType))
-                                items.Add(new CompletionItemInfo { Text = $"{ownerName}.{member}", Kind = "element", Detail = "property element" });
+                                items.Add(new CompletionItemInfo { Text = member, Kind = "element", Detail = "property element" });
                         }
 
                         var ownerClr = owner.ClrType.UnderlyingSystemType;
                         if (ownerClr is not null)
                         {
                             foreach (var attached in AttachedPropertyNames(ownerClr))
-                                items.Add(new CompletionItemInfo { Text = $"{ownerName}.{attached}", Kind = "element", Detail = "attached" });
+                                items.Add(new CompletionItemInfo { Text = attached, Kind = "element", Detail = "attached" });
                         }
                     }
 
@@ -263,8 +266,17 @@ internal static partial class EditorServices
                 {
                     foreach (var member in provider.GetKnownMemberNames(parentType.ClrType))
                     {
-                        var memberType = parentType.TryGetMember(member)?.ValueType.UnderlyingSystemType;
-                        if (memberType is null || memberType == typeof(string) || ItemTypeOf(memberType) is null)
+                        var xamlMember = parentType.TryGetMember(member);
+                        var memberType = xamlMember?.ValueType.UnderlyingSystemType;
+                        if (memberType is null || memberType == typeof(string))
+                            continue;
+
+                        // Collections can ONLY be populated in element form; converterless
+                        // scalars (Template and friends) can only be AUTHORED there — both earn
+                        // a spot without the explicit "<Parent." gesture. Convertible scalars
+                        // stay behind it (attribute form is their home).
+                        var isCollection = ItemTypeOf(memberType) is not null;
+                        if (!isCollection && !IsElementFormOnly(xamlMember!, memberType))
                             continue;
 
                         items.Add(new CompletionItemInfo
@@ -359,6 +371,14 @@ internal static partial class EditorServices
                     break;
                 }
 
+                // Setter.Property: the enclosing Style's target-type members (dotted owner
+                // prefixes complete that owner's members + attached — the TextElement.X form).
+                if (context is { ElementName: "Setter", AttributeName: "Property" })
+                {
+                    items.AddRange(SetterPropertyItems(context.Prefix, xaml, offset, namespaces, provider));
+                    break;
+                }
+
                 if (context.AttributeName == "Selector")
                 {
                     items.AddRange(SelectorCompletions(context.Prefix, xaml, namespaces, provider));
@@ -372,7 +392,9 @@ internal static partial class EditorServices
                     break;
                 }
 
-                var valueType = ResolveAttributeValueType(context, namespaces, provider);
+                var valueType = context is { ElementName: "Setter", AttributeName: "Value" }
+                    ? SetterValueType(xaml, offset, namespaces, provider)
+                    : ResolveAttributeValueType(context, namespaces, provider);
                 var underlying = valueType is null ? null : Nullable.GetUnderlyingType(valueType) ?? valueType;
                 if (underlying is null)
                     break;
@@ -452,6 +474,72 @@ internal static partial class EditorServices
         }
 
         return items.DistinctBy(i => i.Text).ToList();
+    }
+
+    /// <summary>Completion for <c>Setter Property="…"</c>: the style target's members, or a dotted owner's.</summary>
+    private static List<CompletionItemInfo> SetterPropertyItems(
+        string typed, string xaml, int offset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var items = new List<CompletionItemInfo>();
+        var dot = typed.IndexOf('.');
+        if (dot > 0)
+        {
+            // "TextElement.Te" — the owner is explicit; BARE names (the IDE's prefix breaks at the dot).
+            var owner = ResolveElement(typed[..dot], namespaces, provider);
+            var ownerClr = owner?.ClrType.UnderlyingSystemType;
+            if (owner is not null)
+            {
+                foreach (var member in provider.GetKnownMemberNames(owner.ClrType))
+                    items.Add(new CompletionItemInfo { Text = member, Kind = "value", Detail = typed[..dot] });
+            }
+
+            if (ownerClr is not null)
+            {
+                foreach (var attached in AttachedPropertyNames(ownerClr))
+                    items.Add(new CompletionItemInfo { Text = attached, Kind = "value", Detail = "attached" });
+            }
+
+            return items.DistinctBy(i => i.Text).ToList();
+        }
+
+        var targetName = SetterTargetTypeName(xaml, offset);
+        var target = targetName is null ? null : ResolveElement(targetName, namespaces, provider);
+        if (target is null)
+            return items;
+
+        foreach (var member in provider.GetKnownMemberNames(target.ClrType))
+            items.Add(new CompletionItemInfo { Text = member, Kind = "value", Detail = targetName });
+
+        return items;
+    }
+
+    /// <summary>The CLR type a <c>Setter Value="…"</c> converts to — resolved through the sibling Property reference.</summary>
+    private static Type? SetterValueType(string xaml, int offset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var reference = ContainingTagAttribute(xaml, offset, "Property");
+        if (reference is not { Length: > 0 })
+            return null;
+
+        var dot = reference.IndexOf('.');
+        if (dot > 0)
+            return AttributeValueType(reference[..dot], reference[(dot + 1)..], namespaces, provider);
+
+        var targetName = SetterTargetTypeName(xaml, offset);
+        return targetName is null ? null : AttributeValueType(targetName, reference, namespaces, provider);
+    }
+
+    /// <summary>
+    /// True for a member only ELEMENT FORM can author: a non-primitive scalar with no string
+    /// converter (templates, complex objects). Attribute text cannot express it, so the
+    /// element-position completion offers it without the explicit qualifier gesture.
+    /// </summary>
+    private static bool IsElementFormOnly(XamlMember member, Type memberType)
+    {
+        if (member.IsEvent || member.Converter is not null)
+            return false;
+
+        var underlying = Nullable.GetUnderlyingType(memberType) ?? memberType;
+        return !underlying.IsPrimitive && !underlying.IsEnum && underlying != typeof(object) && underlying != typeof(string);
     }
 
     private static bool IsInstantiable(XamlType candidate, Type? clr)

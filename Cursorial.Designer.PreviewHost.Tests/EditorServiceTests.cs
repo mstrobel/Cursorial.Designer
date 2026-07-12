@@ -221,9 +221,11 @@ public class EditorServiceTests : IDisposable
         var xaml = $"<StackPanel {Xmlns}>\n  <Button>\n    <Button.\n</StackPanel>";
         _session.Execute(new CompleteCommand { Id = 61, Xaml = xaml, Line = 3, Column = 13 });
 
+        // BARE names: the buffer already carries "Button." and the IDE prefix breaks at the
+        // dot — qualified inserts doubled the owner.
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
-        Assert.Contains(completions.Items, i => i is { Text: "Button.Content", Detail: "property element" });
-        Assert.Contains(completions.Items, i => i.Text == "Button.Resources");
+        Assert.Contains(completions.Items, i => i is { Text: "Content", Detail: "property element" });
+        Assert.Contains(completions.Items, i => i.Text == "Resources");
     }
 
     [Fact]
@@ -893,6 +895,78 @@ public class EditorServiceTests : IDisposable
 
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
         Assert.Contains(completions.Items, i => i is { Text: "d", Kind: "value" });
+    }
+
+    [Fact]
+    public void Complete_offers_property_elements_for_element_form_only_scalars()
+    {
+        // Template has no string converter: element form is its only authoring, so it earns a
+        // spot in the unqualified child list (convertible scalars stay behind "<Parent.").
+        _session.Execute(new CompleteCommand
+        {
+            Id = 134,
+            Xaml = $"<StackPanel {Xmlns}>\n  <ToggleButton>\n    <Tem\n</StackPanel>",
+            Line = 3,
+            Column = 9,
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "ToggleButton.Template", Detail: "property element" });
+        Assert.DoesNotContain(completions.Items, i => i.Text == "ToggleButton.IsChecked"); // convertible: attribute form
+    }
+
+    [Fact]
+    public void Complete_emits_bare_members_after_a_typed_qualifier()
+    {
+        // The buffer already carries "ToggleButton." and the IDE's prefix breaks at the dot —
+        // qualified inserts doubled the owner (ToggleButton.ToggleButton.Template).
+        _session.Execute(new CompleteCommand
+        {
+            Id = 135,
+            Xaml = $"<StackPanel {Xmlns}>\n  <ToggleButton>\n    <ToggleButton.Tem\n</StackPanel>",
+            Line = 3,
+            Column = 22,
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Template", Kind: "element" });
+        Assert.DoesNotContain(completions.Items, i => i.Text.Contains('.'));
+    }
+
+    [Fact]
+    public void Complete_offers_style_target_members_for_setter_property()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n  <Style Selector=\"Button\" TargetType=\"Button\">\n    <Setter Property=\"\n</StackPanel>";
+        var line3 = "    <Setter Property=\"";
+        _session.Execute(new CompleteCommand { Id = 136, Xaml = xaml, Line = 3, Column = line3.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Content", Detail: "Button" });
+        Assert.Contains(completions.Items, i => i is { Text: "Visibility" });
+    }
+
+    [Fact]
+    public void Complete_offers_attached_members_for_dotted_setter_property()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n  <Style Selector=\"Button\">\n    <Setter Property=\"TextElement.\n</StackPanel>";
+        var line3 = "    <Setter Property=\"TextElement.";
+        _session.Execute(new CompleteCommand { Id = 137, Xaml = xaml, Line = 3, Column = line3.Length + 1 });
+
+        // Bare names after the dot (the prefix breaks there); TextElement's attached set.
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "TextAttributes" });
+        Assert.DoesNotContain(completions.Items, i => i.Text.Contains('.'));
+    }
+
+    [Fact]
+    public void Complete_types_setter_value_from_the_property_reference()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n  <Style Selector=\"Button\" TargetType=\"Button\">\n    <Setter Property=\"Visibility\" Value=\"\n</StackPanel>";
+        var line3 = "    <Setter Property=\"Visibility\" Value=\"";
+        _session.Execute(new CompleteCommand { Id = 138, Xaml = xaml, Line = 3, Column = line3.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Visible", Kind: "value" });
     }
 
     [Fact]
