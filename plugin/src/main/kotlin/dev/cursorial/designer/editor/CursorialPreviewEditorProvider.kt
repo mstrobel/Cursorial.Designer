@@ -68,10 +68,10 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
     }
 
     /**
-     * The split editor, remembering how the user last arranged it (globally, not per file):
-     * layout mode (text / split / preview) and split orientation are read back at construction
-     * and saved on dispose. The inner preview/properties divider persists separately via its
-     * splitter proportion key.
+     * The split editor, remembering how the user last arranged it: layout mode (text / split /
+     * preview) and split orientation are read back at construction and saved on dispose. Divider
+     * proportions load once per editor from per-orientation defaults and save as they move —
+     * never live-synced between open documents (see [detachSharedProportionKey]).
      */
     private class RememberingSplitEditor(textEditor: TextEditor, previewEditor: CursorialPreviewEditor) :
         TextEditorWithPreview(textEditor, previewEditor, "Cursorial Designer", savedLayout()) {
@@ -79,6 +79,7 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
         private companion object {
             const val LAYOUT_KEY = "cursorial.designer.editor.layout"
             const val VERTICAL_KEY = "cursorial.designer.editor.verticalSplit"
+            const val DEFAULT_PROPORTION = 0.5f
 
             fun savedLayout(): Layout =
                 PropertiesComponent.getInstance().getValue(LAYOUT_KEY)
@@ -89,6 +90,46 @@ class CursorialPreviewEditorProvider : FileEditorProvider, DumbAware {
         init {
             if (PropertiesComponent.getInstance().getBoolean(VERTICAL_KEY, false))
                 setState(MyFileEditorState(savedLayout(), null, null, isVerticalSplit = true))
+            detachSharedProportionKey()
+        }
+
+        /**
+         * The platform splitter persists its proportion under ONE key shared by every
+         * [TextEditorWithPreview] in the IDE — and RELOADS it on `addNotify` (every tab switch),
+         * so resizing the preview in one document live-resized it in every other, and a
+         * HORIZONTAL proportion drove VERTICAL splits too (one key, both orientations). Detach
+         * the shared key and manage per-orientation defaults ourselves: an editor loads its
+         * orientation's default at open (and when the orientation flips), saves as the divider
+         * moves, and is otherwise independent of its siblings.
+         */
+        private fun detachSharedProportionKey() {
+            val splitter = findSplitter(component) ?: return
+            splitter.setSplitterProportionKey(null)
+            applySavedProportion(splitter)
+            splitter.addPropertyChangeListener { event ->
+                when (event.propertyName) {
+                    com.intellij.openapi.ui.Splitter.PROP_PROPORTION -> PropertiesComponent.getInstance()
+                        .setValue(proportionKey(splitter.isVertical), splitter.proportion, DEFAULT_PROPORTION)
+                    com.intellij.openapi.ui.Splitter.PROP_ORIENTATION -> applySavedProportion(splitter)
+                }
+            }
+        }
+
+        private fun applySavedProportion(splitter: com.intellij.ui.JBSplitter) {
+            splitter.proportion = PropertiesComponent.getInstance()
+                .getFloat(proportionKey(splitter.isVertical), DEFAULT_PROPORTION)
+        }
+
+        private fun proportionKey(vertical: Boolean): String =
+            if (vertical) "cursorial.designer.editor.splitProportion.vertical"
+            else "cursorial.designer.editor.splitProportion.horizontal"
+
+        private fun findSplitter(root: java.awt.Component): com.intellij.ui.JBSplitter? {
+            if (root is com.intellij.ui.JBSplitter) return root
+            if (root !is java.awt.Container) return null
+            for (child in root.components)
+                findSplitter(child)?.let { return it }
+            return null
         }
 
         override fun dispose() {

@@ -71,6 +71,8 @@ class CursorialPreviewEditor(
     companion object {
         private val logger = logger<CursorialPreviewEditor>()
         private const val RELOAD_DEBOUNCE_MS = 300
+        private const val PROPERTIES_PROPORTION_KEY = "cursorial.designer.preview.propertiesSplitter"
+        private const val DEFAULT_PROPERTIES_PROPORTION = 0.72f
 
         /** Parses "#RRGGBB" or "#RRGGBBAA" into an AWT color; null for anything else. */
         fun parseSwatch(hex: String?): java.awt.Color? {
@@ -126,9 +128,21 @@ class CursorialPreviewEditor(
         })
     }
 
-    private val splitter = com.intellij.ui.JBSplitter(false, 0.72f).apply {
-        // Remember where the user parks the properties divider (global, PropertiesComponent-backed).
-        setAndLoadSplitterProportionKey("cursorial.designer.preview.propertiesSplitter")
+    private val splitter = com.intellij.ui.JBSplitter(
+        false,
+        com.intellij.ide.util.PropertiesComponent.getInstance()
+            .getFloat(PROPERTIES_PROPORTION_KEY, DEFAULT_PROPERTIES_PROPORTION),
+    ).apply {
+        // Load-once + save-on-change — deliberately NOT setAndLoadSplitterProportionKey: the keyed
+        // mode RELOADS the shared value on every addNotify (tab switch), live-syncing the divider
+        // across documents. This way a new editor opens where the user last parked it, and open
+        // editors stay independent.
+        addPropertyChangeListener { event ->
+            if (event.propertyName == com.intellij.openapi.ui.Splitter.PROP_PROPORTION) {
+                com.intellij.ide.util.PropertiesComponent.getInstance()
+                    .setValue(PROPERTIES_PROPORTION_KEY, proportion, DEFAULT_PROPERTIES_PROPORTION)
+            }
+        }
         firstComponent = gridScrollPane
         secondComponent = null // hidden until the toolbar toggle shows it
     }
