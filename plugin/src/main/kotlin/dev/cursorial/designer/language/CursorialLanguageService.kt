@@ -77,43 +77,44 @@ class CursorialLanguageService(private val project: Project) : Disposable {
     /** Live diagnostics for a document snapshot; null when the service is unavailable or slow. */
     fun analyze(xaml: String, sourceUri: String?, contextFile: VirtualFile?, classify: Boolean = false, timeoutMs: Long = 5_000): DiagnosticsEvent? {
         val id = requestIds.incrementAndGet()
-        return request(id, timeoutMs, contextFile) {
-            AnalyzeCommand(id, xaml, sourceUri, assembliesFor(contextFile), if (classify) true else null)
+        return request(id, timeoutMs, contextFile) { assemblies ->
+            AnalyzeCommand(id, xaml, sourceUri, assemblies, if (classify) true else null)
         } as? DiagnosticsEvent
     }
 
     /** Symbol info (signature/docs/value) at a 1-based (line, column); null when unavailable or nothing there. */
     fun hover(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 1_500): HoverInfoEvent? {
         val id = requestIds.incrementAndGet()
-        return request(id, timeoutMs, contextFile) {
-            HoverCommand(id, xaml, line, column, assembliesFor(contextFile), contextFile?.path)
+        return request(id, timeoutMs, contextFile) { assemblies ->
+            HoverCommand(id, xaml, line, column, assemblies, contextFile?.path)
         } as? HoverInfoEvent
     }
 
     /** Source location of the symbol at a 1-based (line, column); null when unavailable. */
     fun definition(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 1_500): DefinitionEvent? {
         val id = requestIds.incrementAndGet()
-        return request(id, timeoutMs, contextFile) {
-            DefinitionCommand(id, xaml, line, column, assembliesFor(contextFile), contextFile?.path)
+        return request(id, timeoutMs, contextFile) { assemblies ->
+            DefinitionCommand(id, xaml, line, column, assemblies, contextFile?.path)
         } as? DefinitionEvent
     }
 
     /** Completion items at a 1-based (line, column); null when unavailable or slow. */
     fun complete(xaml: String, line: Int, column: Int, contextFile: VirtualFile?, timeoutMs: Long = 2_000): CompletionsEvent? {
         val id = requestIds.incrementAndGet()
-        return request(id, timeoutMs, contextFile) {
-            CompleteCommand(id, xaml, line, column, assembliesFor(contextFile))
+        return request(id, timeoutMs, contextFile) { assemblies ->
+            CompleteCommand(id, xaml, line, column, assemblies)
         } as? CompletionsEvent
     }
 
     private fun assembliesFor(file: VirtualFile?): List<String> =
         file?.let { UserAssemblyLocator.locate(it).assemblies } ?: emptyList()
 
-    private fun request(id: Int, timeoutMs: Long, contextFile: VirtualFile?, command: () -> dev.cursorial.designer.protocol.PreviewerCommand): PreviewerEvent? {
-        val host = ensureProcess(contextFile) ?: return null
+    private fun request(id: Int, timeoutMs: Long, contextFile: VirtualFile?, command: (List<String>) -> dev.cursorial.designer.protocol.PreviewerCommand): PreviewerEvent? {
+        val assemblies = assembliesFor(contextFile)
+        val host = ensureProcess(contextFile, assemblies) ?: return null
         val future = CompletableFuture<PreviewerEvent>()
         pending[id] = future
-        if (!host.sendCommand(command())) {
+        if (!host.sendCommand(command(assemblies))) {
             pending.remove(id)
             return null
         }
@@ -143,8 +144,17 @@ class CursorialLanguageService(private val project: Project) : Disposable {
         }
     }
 
+    /**
+     * The registered user assemblies' timestamps at load. Guarded by the [ensureProcess] monitor.
+     * A rebuilt USER assembly is invisible to a running host — the CLR never reloads an
+     * already-loaded assembly at the same path, so new/removed view-model members would be
+     * missing from completion until the process dies (the preview side restarts on its dll
+     * watch for the same reason).
+     */
+    private val userAssemblyStamps = HashMap<String, Long>()
+
     @Synchronized
-    private fun ensureProcess(contextFile: VirtualFile?): PreviewHostProcess? {
+    private fun ensureProcess(contextFile: VirtualFile?, userAssemblies: List<String>): PreviewHostProcess? {
         val hostDll = CursorialDesignerSettings.getInstance(project).previewHostDllPath(contextFile)
         if (hostDll == null) {
             logger.info("Cursorial language service unavailable: PreviewHost dll not found")
@@ -153,18 +163,24 @@ class CursorialLanguageService(private val project: Project) : Disposable {
 
         val stamp = hostDll.toFile().lastModified()
         process?.takeIf { it.isRunning }?.let { existing ->
-            if (stamp == hostDllStamp)
-                return existing
-            // The host binary was rebuilt: a language service serving stale code is the classic
-            // "the feature exists but the IDE disagrees" trap. Restart onto the new bits; the
-            // request that triggered this degrades gracefully and the next one is served fresh.
-            logger.info("Preview host binary changed; restarting language service")
-            hostDllStamp = stamp
-            existing.restart()
+            if (stamp != hostDllStamp) {
+                // The host binary was rebuilt: a language service serving stale code is the classic
+                // "the feature exists but the IDE disagrees" trap. Restart onto the new bits; the
+                // request that triggered this degrades gracefully and the next one is served fresh.
+                logger.info("Preview host binary changed; restarting language service")
+                hostDllStamp = stamp
+                existing.restart()
+            } else if (recordUserAssemblyStamps(userAssemblies)) {
+                // A user assembly was rebuilt at the same path. If the build is still writing, the
+                // next request sees another stamp change and restarts again — eventually consistent.
+                logger.info("User assembly changed; restarting language service")
+                existing.restart()
+            }
             return existing
         }
 
         hostDllStamp = stamp
+        recordUserAssemblyStamps(userAssemblies)
         val fresh = process ?: PreviewHostProcess(hostDll).also {
             it.addListener(listener)
             Disposer.register(this, it)
@@ -172,6 +188,17 @@ class CursorialLanguageService(private val project: Project) : Disposable {
         }
         fresh.start()
         return fresh
+    }
+
+    /** Records the assemblies' current stamps; true when a PREVIOUSLY SEEN assembly changed. */
+    private fun recordUserAssemblyStamps(assemblies: List<String>): Boolean {
+        var changed = false
+        for (path in assemblies) {
+            val stamp = java.io.File(path).lastModified()
+            val previous = userAssemblyStamps.put(path, stamp)
+            if (previous != null && previous != stamp) changed = true
+        }
+        return changed
     }
 
     override fun dispose() {
