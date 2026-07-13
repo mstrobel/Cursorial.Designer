@@ -16,6 +16,19 @@ namespace Cursorial.Designer.PreviewHost;
 /// </summary>
 internal static partial class EditorServices
 {
+    /// <summary>
+    /// The metadata provider every editor service resolves through — PINNED to the host's
+    /// reflection provider at process start (PreviewSession's static initializer). Never read
+    /// XamlLoaderOptions.DefaultMetadataProvider lazily here: a user assembly built against
+    /// Cursorial &lt;= 0.4.0 carries a generated module initializer that replaces the process
+    /// default with the app's CLOSED SET the moment its code runs — and a closed set only knows
+    /// the handful of types the app's own documents referenced, which gutted completion/hover/
+    /// highlighting for every session that had instantiated user code (the Cursorial.Samples
+    /// "completion is largely broken" bug). Newer generators emit no module initializer, but
+    /// user code can still set the global default deliberately.
+    /// </summary>
+    internal static IXamlTypeMetadataProvider MetadataProvider { get; set; } = XamlLoaderOptions.DefaultMetadataProvider;
+
     [GeneratedRegex("xmlns(?::([A-Za-z_][\\w.-]*))?\\s*=\\s*\"([^\"]*)\"")]
     private static partial Regex XmlnsDeclaration();
 
@@ -184,7 +197,7 @@ internal static partial class EditorServices
         xaml = BlankNonMarkup(xaml); // document sweeps (x:Key, Name, d:DataContext) skip comments too
         var context = Detect(xaml, offset);
         var namespaces = ScanNamespaces(xaml);
-        var provider = XamlLoaderOptions.DefaultMetadataProvider;
+        var provider = MetadataProvider;
         var items = new List<CompletionItemInfo>();
 
         switch (context.Kind)

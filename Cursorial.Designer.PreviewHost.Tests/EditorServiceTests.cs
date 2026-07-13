@@ -72,6 +72,51 @@ public class EditorServiceTests : IDisposable
     }
 
     [Fact]
+    public void Editor_services_survive_a_user_app_provider_hijack()
+    {
+        // A user assembly built against Cursorial <= 0.4.0 carries a generated module initializer
+        // that installs its CLOSED SET as the process-default metadata provider the first time its
+        // code executes (the analyze build-attempt instantiates user controls). Newer generators
+        // emit no module initializer (the loader pull-discovers the entry assembly's provider), but
+        // the designer must survive already-shipped binaries — and any user code that sets the
+        // global default. The editor services must keep resolving through the host's pinned
+        // reflection provider — this gutted completion for every session that had touched an app
+        // assembly (the Cursorial.Samples bug).
+        var original = Cursorial.UI.Xaml.XamlLoaderOptions.DefaultMetadataProvider;
+        try
+        {
+            Cursorial.UI.Xaml.XamlLoaderOptions.DefaultMetadataProvider = new EmptyMetadataProvider();
+
+            _session.Execute(new CompleteCommand
+            {
+                Id = 140,
+                Xaml = $"<StackPanel {Xmlns}>\n    <Butt\n</StackPanel>",
+                Line = 2,
+                Column = 10,
+            });
+
+            var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+            Assert.Contains(completions.Items, i => i is { Text: "Button", Kind: "element" });
+        }
+        finally
+        {
+            Cursorial.UI.Xaml.XamlLoaderOptions.DefaultMetadataProvider = original;
+        }
+    }
+
+    private sealed class EmptyMetadataProvider : Cursorial.UI.Xaml.IXamlTypeMetadataProvider
+    {
+        public Cursorial.UI.Xaml.XamlTypeResolution TryGetType(string xmlNamespace, string localName)
+            => Cursorial.UI.Xaml.XamlTypeResolution.NotFound();
+
+        public string[] GetClrNamespaces(string xmlNamespace) => [];
+
+        public string[] GetKnownTypeNames(string xmlNamespace) => [];
+
+        public string[] GetKnownMemberNames(Cursorial.UI.Xaml.IXamlType type) => [];
+    }
+
+    [Fact]
     public void Complete_offers_element_names_after_open_angle()
     {
         _session.Execute(new CompleteCommand

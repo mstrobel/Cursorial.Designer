@@ -85,12 +85,14 @@ internal sealed class PreviewSession : IDisposable
             uri => DesignerResources.TryGetLiveXaml(uri, out var xaml) ? xaml : null;
 
         // Live-parsed documents (and everything else the DESIGNER parses) use the REFLECTION
-        // provider: user apps install their closed-set provider as the process default via a
-        // generated module initializer, and a closed set only knows compile-seen types — the
-        // opposite of what a live preview needs. Capture reflection NOW (before any user
-        // assembly loads), pin XamlLoader.Shared to it (first touch captures the ambient
-        // default), and hand live parsing a dedicated loader.
+        // provider: user apps built against Cursorial <= 0.4.0 install their closed-set provider
+        // as the process default via a generated module initializer (retired since — the loader
+        // now pull-discovers the entry assembly's provider), and a closed set only knows
+        // compile-seen types — the opposite of what a live preview needs. Capture reflection NOW
+        // (before any user assembly loads), pin XamlLoader.Shared to it (first touch captures
+        // the ambient default), and hand live parsing a dedicated loader.
         HostMetadataProvider = Cursorial.UI.Xaml.XamlLoaderOptions.DefaultMetadataProvider;
+        EditorServices.MetadataProvider = HostMetadataProvider;
         _ = Cursorial.UI.Xaml.XamlLoader.Shared;
         Cursorial.UI.Xaml.XamlModule.LiveXamlLoader = new Cursorial.UI.Xaml.XamlLoader(
             new Cursorial.UI.Xaml.XamlLoaderOptions { MetadataProvider = HostMetadataProvider });
@@ -401,6 +403,7 @@ internal sealed class PreviewSession : IDisposable
             return;
         }
 
+        RestoreHostProvider(); // instantiation may have run a user module initializer
         EmitDependencies(command.Id);
 
         if (root is not UIElement element)
@@ -525,6 +528,16 @@ internal sealed class PreviewSession : IDisposable
         }
     }
 
+    /// <summary>
+    /// Re-pins the process-default provider after user code may have executed: a user assembly
+    /// built against Cursorial &lt;= 0.4.0 carries a generated module initializer that installs
+    /// its closed set as the process default the first time anything touches its types (retired
+    /// in newer generators), and user code may set the default deliberately — correct in the
+    /// app, wrong in this host.
+    /// </summary>
+    private static void RestoreHostProvider()
+        => Cursorial.UI.Xaml.XamlLoaderOptions.DefaultMetadataProvider = HostMetadataProvider;
+
     private void RegisterAssemblies(IReadOnlyList<string>? assemblies, long? replyTo)
     {
         if (assemblies is null)
@@ -549,6 +562,8 @@ internal sealed class PreviewSession : IDisposable
                 _emit(new LogEvent { Level = "warn", Message = $"Failed to load assembly '{path}': {ex.Message}" });
             }
         }
+
+        RestoreHostProvider();
     }
 
     /// <summary>
@@ -591,6 +606,8 @@ internal sealed class PreviewSession : IDisposable
             catch
             {
             }
+
+            RestoreHostProvider(); // the build attempt may have run a user module initializer
         }
 
         _emit(new DiagnosticsEvent

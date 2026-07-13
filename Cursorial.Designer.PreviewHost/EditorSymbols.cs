@@ -42,7 +42,7 @@ internal static partial class EditorServices
     {
         var blanked = BlankNonMarkup(xaml);
         var namespaces = ScanNamespaces(blanked);
-        var provider = XamlLoaderOptions.DefaultMetadataProvider;
+        var provider = MetadataProvider;
         var intrinsicsPrefix = namespaces.FirstOrDefault(n => n.Value == IntrinsicsUri).Key;
         var lineStarts = LineStarts(xaml);
         var tokens = new List<TokenInfo>();
@@ -503,7 +503,7 @@ internal static partial class EditorServices
         var offset = OffsetOf(xaml, line, column);
         var blanked = BlankNonMarkup(xaml);
         var namespaces = ScanNamespaces(blanked);
-        var provider = XamlLoaderOptions.DefaultMetadataProvider;
+        var provider = MetadataProvider;
 
         foreach (Match tag in TagToken().Matches(blanked))
         {
