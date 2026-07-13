@@ -1315,4 +1315,65 @@ public class EditorServiceTests : IDisposable
         var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
         Assert.Equal(76, diagnostics.ReplyTo);
     }
+
+    [Fact] // an ancestor's DataContext="{Binding Layers}" re-scopes its subtree: binding-path
+    // completion inside must offer the INNER type's members (the Cursorial.Samples Layers-pane
+    // shape), not the root d:DataContext's.
+    public void Complete_rescopes_binding_paths_through_ancestor_DataContext()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = "<StackPanel " + Xmlns +
+                   " xmlns:d=\"http://schemas.microsoft.com/expression/blend/2008\"" +
+                   $" xmlns:t=\"{ns}\" d:DataContext=\"t:OuterDesignViewModel\">\n" +
+                   "    <Border DataContext=\"{Binding Layers}\">\n" +
+                   "        <TextBlock Text=\"{Binding \n" +
+                   "    </Border>\n</StackPanel>";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 141,
+            Xaml = xaml,
+            Line = 3,
+            Column = 35,
+            Assemblies = [typeof(OuterDesignViewModel).Assembly.Location],
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "AddCommand" });
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Layers" }); // the OUTER member
+    }
+
+    [Fact] // …but completing the re-scope binding ITSELF resolves against the PARENT's context
+    // (the runtime's DataContext-as-target rule, BD2): the element's own re-scope must not apply.
+    public void Complete_for_the_rescope_binding_itself_uses_the_parent_context()
+    {
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        var xaml = "<StackPanel " + Xmlns +
+                   " xmlns:d=\"http://schemas.microsoft.com/expression/blend/2008\"" +
+                   $" xmlns:t=\"{ns}\" d:DataContext=\"t:OuterDesignViewModel\">\n" +
+                   "    <Border DataContext=\"{Binding \n</StackPanel>";
+        _session.Execute(new CompleteCommand
+        {
+            Id = 142,
+            Xaml = xaml,
+            Line = 2,
+            Column = 35,
+            Assemblies = [typeof(OuterDesignViewModel).Assembly.Location],
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Layers" });
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "AddCommand" }); // the INNER member
+    }
+}
+
+/// <summary>Design VMs for the ancestor-DataContext re-scope completion tests (the Layers-pane shape).</summary>
+public sealed class OuterDesignViewModel
+{
+    public InnerDesignViewModel Layers { get; } = new();
+}
+
+public sealed class InnerDesignViewModel
+{
+    public string AddCommand => "add";
+    public int Count => 0;
 }

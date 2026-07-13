@@ -1275,7 +1275,8 @@ internal static partial class EditorServices
     /// <summary>
     /// The binding's source type: <c>ElementName=</c> in the same extension wins (the named
     /// element's type); else the nearest ancestor <c>DataTemplate DataType</c> or
-    /// <c>d:DataContext</c> (the root included — subsuming the old root-only behavior).
+    /// <c>d:DataContext</c> (the root included — subsuming the old root-only behavior), with every
+    /// intervening <c>DataContext="{Binding Path}"</c> re-scope dot-walked inward from that base.
     /// </summary>
     internal static Type? BindingSourceType(string blanked, int caretOffset, string extensionBody, string hostElementName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
@@ -1339,10 +1340,6 @@ internal static partial class EditorServices
         return null;
     }
 
-    /// <summary>
-    /// The ambient data-context type at a position: the nearest enclosing tag carrying
-    /// <c>DataTemplate DataType="…"</c> or <c>d:DataContext="…"</c>, innermost first.
-    /// </summary>
     /// <summary>
     /// The TargetType NAME of the nearest enclosing <c>ControlTemplate</c> (falling back to the
     /// nearest enclosing <c>Style</c>) — what a <c>{TemplateBinding}</c> binds against.
@@ -1469,7 +1466,11 @@ internal static partial class EditorServices
             if (tag.Groups[2].Value == "DataTemplate"
                 && Regex.Match(attributes, "\\bDataType\\s*=\\s*\"([^\"]+)\"") is { Success: true } dataType)
             {
-                return ResolveElement(dataType.Groups[1].Value, namespaces, provider)?.ClrType.UnderlyingSystemType;
+                // Both attribute forms: DataType="vm:LayerModel" and DataType="{x:Type vm:LayerModel}".
+                var name = dataType.Groups[1].Value;
+                if (Regex.Match(name, "^\\{x:Type\\s+([^\\s,}]+)\\}$") is { Success: true } xType)
+                    name = xType.Groups[1].Value;
+                return ResolveElement(name, namespaces, provider)?.ClrType.UnderlyingSystemType;
             }
 
             foreach (var prefix in designPrefixes)
@@ -1504,16 +1505,89 @@ internal static partial class EditorServices
             }
         }
 
-        if (containing is not null && FromTag(containing) is { } own)
-            return own;
-
-        foreach (var tag in stack) // innermost first
+        // Innermost-first candidates: the caret's own tag, then each enclosing tag once.
+        IEnumerable<Match> Candidates()
         {
-            if (FromTag(tag) is { } found)
-                return found;
+            if (containing is not null)
+                yield return containing;
+            foreach (var tag in stack)
+            {
+                if (containing is null || tag.Index != containing.Index)
+                    yield return tag;
+            }
+        }
+
+        // Ancestor DataContext="{Binding Path}" re-scopes between the caret and the typed base,
+        // innermost first. The base type applies them OUTERMOST-first (each dot-walk feeds the
+        // next inner one) — the Layers-expander shape: root d:DataContext=EditorsViewModel, the
+        // expander re-scopes to Layers, its subtree binds against LayersViewModel.
+        var reScopePaths = new List<string>();
+
+        Type? Finish(Type? baseType)
+        {
+            var current = baseType;
+            for (var i = reScopePaths.Count - 1; i >= 0 && current is not null; i--)
+                current = WalkPropertyPath(current, reScopePaths[i]);
+            return current;
+        }
+
+        foreach (var tag in Candidates())
+        {
+            if (FromTag(tag) is { } typed)
+                return Finish(typed);
+
+            var attributesGroup = tag.Groups[3];
+            var reScope = Regex.Match(attributesGroup.Value, "(?<![\\w:.])DataContext\\s*=\\s*\"\\{Binding\\b([^\"]*)\"");
+            if (!reScope.Success)
+                continue;
+
+            // Completing the re-scope binding ITSELF: it resolves against the PARENT's context
+            // (the runtime's DataContext-as-target rule, BD2) — skip this tag's own re-scope.
+            var matchStart = attributesGroup.Index + reScope.Index;
+            if (offset >= matchStart && offset <= matchStart + reScope.Length)
+                continue;
+
+            var body = reScope.Groups[1].Value.TrimEnd();
+            if (body.EndsWith('}'))
+                body = body[..^1];
+
+            // Source=/RelativeSource= anchors are statically unknowable here — no wrong-context items.
+            if (Regex.IsMatch(body, "\\b(?:Source|RelativeSource)\\s*="))
+                return null;
+
+            var path = Regex.Match(body, "\\bPath\\s*=\\s*([^,}\\s]+)") is { Success: true } explicitPath
+                ? explicitPath.Groups[1].Value
+                : body.Split(',')[0].Trim();
+            if (path.Contains('='))
+                path = string.Empty; // the first token was a named argument — no path
+
+            var elementName = Regex.Match(body, "\\bElementName\\s*=\\s*([A-Za-z_][\\w-]*)");
+            if (elementName.Success)
+            {
+                // ElementName-anchored re-scope: the named element's type IS the base.
+                var named = NamedElementType(blanked, elementName.Groups[1].Value, namespaces, provider);
+                return Finish(path.Length == 0 || path == "." ? named : named is null ? null : WalkPropertyPath(named, path));
+            }
+
+            if (path.Length > 0 && path != ".")
+                reScopePaths.Add(path);
         }
 
         return null;
+    }
+
+    /// <summary>Dot-walks <paramref name="path"/>'s property segments from <paramref name="start"/>.</summary>
+    private static Type? WalkPropertyPath(Type start, string path)
+    {
+        Type? current = start;
+        foreach (var segment in path.Split('.'))
+        {
+            current = current?.GetProperty(segment, BindingFlags.Public | BindingFlags.Instance)?.PropertyType;
+            if (current is null)
+                return null;
+        }
+
+        return current;
     }
 
     /// <summary>A binding path resolved against the inferred binding source (ElementName / DataTemplate DataType / d:DataContext).</summary>
