@@ -96,6 +96,13 @@ internal sealed class PreviewSession : IDisposable
         _ = Cursorial.UI.Xaml.XamlLoader.Shared;
         Cursorial.UI.Xaml.XamlModule.LiveXamlLoader = new Cursorial.UI.Xaml.XamlLoader(
             new Cursorial.UI.Xaml.XamlLoaderOptions { MetadataProvider = HostMetadataProvider });
+
+        // The first-party control suites beyond the seeded core (Bars, Dialogs) are deliberately
+        // not auto-discovered by the schema context. Registered HERE — not at initialize — because
+        // the language-service host never initializes a preview, and its completion/hover must
+        // still see every shipped control (and the suites' registered theme keys).
+        XamlSchemaContext.Default.RegisterAssembly(typeof(Toolbar).Assembly);
+        XamlSchemaContext.Default.RegisterAssembly(typeof(Cursorial.UI.Dialogs.MessageBox).Assembly);
     }
 
     /// <summary>The host's reflection metadata provider, captured before any user assembly loads.</summary>
@@ -315,12 +322,9 @@ internal sealed class PreviewSession : IDisposable
         // intent — an ansi16 preview must look like ansi16.
         _quantizer = new StyleQuantizer(_host.Application.Capabilities.Output);
 
-        // The first-party control suites beyond the seeded core (Bars, Dialogs) are deliberately
-        // not auto-discovered by the schema context; the previewer registers them so every
-        // shipped control is XAML-addressable out of the box. KeyTips ride the Alt gate the
-        // plugin already forwards.
-        XamlSchemaContext.Default.RegisterAssembly(typeof(Toolbar).Assembly);
-        XamlSchemaContext.Default.RegisterAssembly(typeof(Cursorial.UI.Dialogs.MessageBox).Assembly);
+        // First-party suites (Bars, Dialogs) are registered in the static ctor — the language
+        // service needs them without any initialize. KeyTips ride the Alt gate the plugin
+        // already forwards.
         _host.Application.EnableKeyTips();
 
         ApplyTheme(_host.Application, command.ThemeBase, command.ColorTier);

@@ -306,18 +306,29 @@ internal static partial class EditorServices
 
             case ContextKind.AttributeName:
             {
-                var type = ResolveElement(context.ElementName, namespaces, provider);
-                if (type is not null)
+                // The IDE's replacement prefix breaks at BOTH '.' and ':' — after a typed
+                // qualifier ("Grid.", "x:", "d:") every item must be BARE, or the insert doubles
+                // the qualifier ("Grid.Grid.Row", "x:x:Name"). A typed dot means an attached
+                // owner; a typed colon (no dot) narrows to that namespace's vocabulary.
+                var attachedDot = context.Prefix.IndexOf('.');
+                var typedColon = context.Prefix.IndexOf(':');
+                var typedNsPrefix = attachedDot < 0 && typedColon > 0 ? context.Prefix[..typedColon] : null;
+
+                if (attachedDot < 0 && typedNsPrefix is null)
                 {
-                    foreach (var member in provider.GetKnownMemberNames(type.ClrType))
-                        items.Add(new CompletionItemInfo { Text = member, Kind = "attribute" });
+                    var type = ResolveElement(context.ElementName, namespaces, provider);
+                    if (type is not null)
+                    {
+                        foreach (var member in provider.GetKnownMemberNames(type.ClrType))
+                            items.Add(new CompletionItemInfo { Text = member, Kind = "attribute" });
+                    }
                 }
 
                 // Attached properties. Explicit owner ("Grid.Ro") completes that owner's attached
-                // set — owners may be STATIC classes, so resolution never goes through the
-                // instantiability filter. Without a dot, the enclosing parent's attached
-                // properties are offered (inside a Grid, a child naturally wants Grid.Row).
-                var attachedDot = context.Prefix.IndexOf('.');
+                // set with BARE names — owners may be STATIC classes, so resolution never goes
+                // through the instantiability filter. Without a dot, the enclosing parent's
+                // attached properties are offered qualified (inside a Grid, a child naturally
+                // wants Grid.Row, and nothing of the qualifier is in the buffer yet).
                 if (attachedDot > 0)
                 {
                     var ownerName = context.Prefix[..attachedDot];
@@ -325,10 +336,10 @@ internal static partial class EditorServices
                     if (owner is not null)
                     {
                         foreach (var attached in AttachedPropertyNames(owner))
-                            items.Add(new CompletionItemInfo { Text = $"{ownerName}.{attached}", Kind = "attribute", Detail = "attached" });
+                            items.Add(new CompletionItemInfo { Text = attached, Kind = "attribute", Detail = "attached" });
                     }
                 }
-                else if (context.ParentElement is { } parentName && !parentName.Contains('.'))
+                else if (typedNsPrefix is null && context.ParentElement is { } parentName && !parentName.Contains('.'))
                 {
                     var parent = ResolveElement(parentName, namespaces, provider)?.ClrType.UnderlyingSystemType;
                     if (parent is not null)
@@ -340,10 +351,15 @@ internal static partial class EditorServices
 
                 // The intrinsics directives, under whatever prefix maps to them (conventionally x).
                 var intrinsicsPrefix = namespaces.FirstOrDefault(n => n.Value == "https://cursorial.dev/xaml").Key;
-                if (intrinsicsPrefix is { Length: > 0 })
+                if (intrinsicsPrefix is { Length: > 0 } && (typedNsPrefix is null || typedNsPrefix == intrinsicsPrefix))
                 {
                     foreach (var directive in new[] { "Name", "Key", "Class", "DataType" })
-                        items.Add(new CompletionItemInfo { Text = $"{intrinsicsPrefix}:{directive}", Kind = "attribute", Detail = "directive" });
+                        items.Add(new CompletionItemInfo
+                        {
+                            Text = typedNsPrefix is null ? $"{intrinsicsPrefix}:{directive}" : directive,
+                            Kind = "attribute",
+                            Detail = "directive",
+                        });
                 }
 
                 // Design-time (d:) and markup-compatibility (mc:) vocabularies — no IDE offers
@@ -351,17 +367,27 @@ internal static partial class EditorServices
                 // prefixes are declared (the templates ship them preset).
                 foreach (var (prefix, uri) in namespaces)
                 {
-                    if (prefix.Length == 0)
+                    if (prefix.Length == 0 || (typedNsPrefix is not null && typedNsPrefix != prefix))
                         continue;
 
                     if (DesignUris.Contains(uri))
                     {
                         foreach (var design in new[] { "DataContext", "DesignWidth", "DesignHeight" })
-                            items.Add(new CompletionItemInfo { Text = $"{prefix}:{design}", Kind = "attribute", Detail = "design-time" });
+                            items.Add(new CompletionItemInfo
+                            {
+                                Text = typedNsPrefix is null ? $"{prefix}:{design}" : design,
+                                Kind = "attribute",
+                                Detail = "design-time",
+                            });
                     }
                     else if (uri == MarkupCompatibilityUri)
                     {
-                        items.Add(new CompletionItemInfo { Text = $"{prefix}:Ignorable", Kind = "attribute", Detail = "markup compatibility" });
+                        items.Add(new CompletionItemInfo
+                        {
+                            Text = typedNsPrefix is null ? $"{prefix}:Ignorable" : "Ignorable",
+                            Kind = "attribute",
+                            Detail = "markup compatibility",
+                        });
                     }
                 }
 

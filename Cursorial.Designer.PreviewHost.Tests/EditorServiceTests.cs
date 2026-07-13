@@ -286,13 +286,38 @@ public class EditorServiceTests : IDisposable
     [Fact]
     public void Complete_offers_attached_properties_of_an_explicit_owner()
     {
-        // Grid is not the parent here; the explicit dotted owner still completes.
+        // Grid is not the parent here; the explicit dotted owner still completes — with BARE
+        // names: the typed "Grid." stays in the buffer (the IDE's replacement prefix breaks at
+        // the dot), so a qualified item would insert "Grid.Grid.Row".
         var xaml = $"<StackPanel {Xmlns}>\n    <Button Grid.\n</StackPanel>";
         _session.Execute(new CompleteCommand { Id = 52, Xaml = xaml, Line = 2, Column = 18 });
 
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
-        Assert.Contains(completions.Items, i => i.Text == "Grid.Row");
-        Assert.Contains(completions.Items, i => i.Text == "Grid.Column");
+        Assert.Contains(completions.Items, i => i.Text == "Row");
+        Assert.Contains(completions.Items, i => i.Text == "Column");
+        Assert.DoesNotContain(completions.Items, i => i.Text.Contains('.')); // nothing re-qualifies
+    }
+
+    [Fact] // same disease for xmlns qualifiers: after a typed "x:"/"d:" the items must be bare
+    // (the replacement prefix breaks at ':' too — "x:x:Name" otherwise), narrowed to that prefix.
+    public void Complete_after_a_typed_namespace_prefix_offers_bare_names()
+    {
+        var xaml = "<StackPanel " + Xmlns +
+                   " xmlns:d=\"http://schemas.microsoft.com/expression/blend/2008\">\n    <Button x:\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 53, Xaml = xaml, Line = 2, Column = 15 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Name", Detail: "directive" });
+        Assert.DoesNotContain(completions.Items, i => i.Text.Contains(':'));           // bare, no re-qualify
+        Assert.DoesNotContain(completions.Items, i => i is { Detail: "design-time" }); // other vocabularies drop out
+
+        var designXaml = "<StackPanel " + Xmlns +
+                         " xmlns:d=\"http://schemas.microsoft.com/expression/blend/2008\">\n    <Button d:\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 54, Xaml = designXaml, Line = 2, Column = 15 });
+
+        var designCompletions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(designCompletions.Items, i => i is { Text: "DesignWidth", Detail: "design-time" });
+        Assert.DoesNotContain(designCompletions.Items, i => i.Text.Contains(':'));
     }
 
     [Fact]

@@ -83,6 +83,15 @@
         <gotoDeclarationHandler implementation="dev.cursorial.designer.language.CursorialXamlGotoDeclarationHandler" />
         <!-- Ctrl+W steps through markup-extension structure ({x:Static Type.Member} nesting). -->
         <extendWordSelectionHandler implementation="dev.cursorial.designer.language.CursorialXamlExtendSelectionHandler" />
+        <!-- Attribute → property-element form, XAML-correct (attached names verbatim, plain
+             properties owner-qualified, directives excluded). The filter hides the foreign
+             "convert to nested element" item, which doubles prefixes under our dialect. -->
+        <intentionAction>
+            <language>CursorialXaml</language>
+            <className>dev.cursorial.designer.language.CursorialXamlConvertAttributeIntention</className>
+            <category>Cursorial XAML</category>
+        </intentionAction>
+        <daemon.intentionActionFilter implementation="dev.cursorial.designer.language.CursorialXamlIntentionFilter" />
 
         <!--
             dev.cursorial.designer.settings.CursorialDesignerSettings is a light service
