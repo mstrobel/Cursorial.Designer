@@ -1092,12 +1092,13 @@ internal sealed class PreviewSession : IDisposable
         (var known, capabilities) = name?.ToLowerInvariant() switch
         {
             null or "kitty-truecolor" => (true, HeadlessCapabilities.KittyTruecolor),
-            "ansi16" => (true, HeadlessCapabilities.Ansi16Legacy),
-            "no-motion" => (true, HeadlessCapabilities.NoMotion),
-            "kitty-graphics" => (true, HeadlessCapabilities.KittyGraphics),
-            "sixel" => (true, HeadlessCapabilities.SixelGraphics),
-            "iterm2" => (true, HeadlessCapabilities.ITerm2Graphics),
-            _ => (false, HeadlessCapabilities.KittyTruecolor),
+            "ansi16"                  => (true, HeadlessCapabilities.Ansi16Legacy),
+            "no-motion"               => (true, HeadlessCapabilities.NoMotion),
+            "kitty-graphics"          => (true, HeadlessCapabilities.KittyGraphics),
+            "sixel"                   => (true, HeadlessCapabilities.SixelGraphics),
+            "iterm2"                  => (true, HeadlessCapabilities.ITerm2Graphics),
+            "vt100"                   => (true, HeadlessCapabilities.GenericVt),
+            _                         => (false, HeadlessCapabilities.KittyTruecolor),
         };
         return known;
     }

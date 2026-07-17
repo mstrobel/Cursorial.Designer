@@ -579,7 +579,7 @@ class CursorialPreviewEditor(
             add(DefaultActionGroup("Terminal Profiles", true).apply {
                 templatePresentation.description = "Preview against a synthetic terminal capability profile (restarts the preview)"
                 templatePresentation.icon = CursorialDesignerIcons.TerminalProfile
-                for (profile in listOf("kitty-truecolor", "ansi16", "no-motion", "kitty-graphics", "sixel", "iterm2"))
+                for (profile in listOf("kitty-truecolor", "ansi16", "no-motion", "kitty-graphics", "sixel", "iterm2", "vt100"))
                     add(capabilityAction(profile))
             })
             addSeparator()
