@@ -783,7 +783,7 @@ internal static partial class EditorServices
         }
 
         if (parameterName == "ElementName")
-            return NamedElementSymbol(xaml, documentPath, token);
+            return NamedElementSymbol(xaml, documentPath, token, valueDocumentOffset + offsetInValue);
         if (parameterName == "AncestorType")
             return TypeNameOrPrefixSymbol(xaml, documentPath, token, offsetInValue - start, namespaces, provider);
         if (parameterName == "Path" && canonical is "Binding")
@@ -801,7 +801,7 @@ internal static partial class EditorServices
         return canonical switch
         {
             "StaticResource" or "DynamicResource" => ResourceKeySymbol(xaml, documentPath, token),
-            "x:Reference" => NamedElementSymbol(xaml, documentPath, token),
+            "x:Reference" => NamedElementSymbol(xaml, documentPath, token, valueDocumentOffset + offsetInValue),
             "x:Type" => TypeNameOrPrefixSymbol(xaml, documentPath, token, offsetInValue - start, namespaces, provider),
             "TemplateBinding" when TemplateTargetTypeName(xaml, valueDocumentOffset + offsetInValue) is { } templateTarget
                 => MemberSymbol(templateTarget, token, namespaces, provider),
@@ -1043,7 +1043,7 @@ internal static partial class EditorServices
         var marker = start > 0 ? value[start - 1] : '\0';
         return marker switch
         {
-            '#' => NamedElementSymbol(xaml, documentPath, token),
+            '#' => NamedElementSymbol(xaml, documentPath, token, enclosingTagOffset),
             '.' => new SymbolInfo(
                 $".{token}",
                 Cursorial.UI.CapabilityClasses.Names.Contains(token)
@@ -1251,12 +1251,14 @@ internal static partial class EditorServices
         return null;
     }
 
-    /// <summary>A named element (<c>x:Reference</c>/<c>ElementName</c> target); definition jumps in-document.</summary>
-    private static SymbolInfo? NamedElementSymbol(string xaml, string? documentPath, string name)
+    /// <summary>A named element (<c>x:Reference</c>/<c>ElementName</c> target); definition jumps in-document,
+    /// to the declaration in the REFERENCE's own name scope (template roots are name scopes, so a same-named
+    /// part in another template is not the target — <see cref="NameScopeSpan"/>).</summary>
+    private static SymbolInfo? NamedElementSymbol(string xaml, string? documentPath, string name, int referenceOffset)
     {
         foreach (Match match in NameAttribute().Matches(xaml))
         {
-            if (match.Groups[1].Value != name)
+            if (match.Groups[1].Value != name || !InSameNameScope(xaml, referenceOffset, match.Groups[1].Index))
                 continue;
 
             return new SymbolInfo(
@@ -1282,7 +1284,7 @@ internal static partial class EditorServices
     {
         var elementName = Regex.Match(extensionBody, "\\bElementName\\s*=\\s*([A-Za-z_][\\w-]*)");
         if (elementName.Success)
-            return NamedElementType(blanked, elementName.Groups[1].Value, namespaces, provider);
+            return NamedElementType(blanked, elementName.Groups[1].Value, caretOffset, namespaces, provider);
 
         // RelativeSource anchors: Self → the host element's own type; FindAncestor → the
         // declared AncestorType; TemplatedParent is statically unknowable (no completion).
@@ -1319,11 +1321,16 @@ internal static partial class EditorServices
             declaration.Success ? DocumentLocation(xaml, documentPath, declaration.Index) : null);
     }
 
-    /// <summary>The CLR type of the element declaring <c>Name</c>/<c>x:Name</c> = <paramref name="name"/>.</summary>
-    private static Type? NamedElementType(string xaml, string name, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    /// <summary>The CLR type of the element declaring <c>Name</c>/<c>x:Name</c> = <paramref name="name"/>,
+    /// resolved in the reference's own name scope (template roots are name scopes — see
+    /// <see cref="NameScopeSpan"/>), so an <c>ElementName</c> binds the same-named element the runtime would.</summary>
+    private static Type? NamedElementType(string xaml, string name, int referenceOffset, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         foreach (Match match in NameAttribute().Matches(xaml))
         {
+            if (!InSameNameScope(xaml, referenceOffset, match.Groups[1].Index))
+                continue;
+
             if (match.Groups[1].Value != name)
                 continue;
 
@@ -1382,6 +1389,77 @@ internal static partial class EditorServices
 
         return styleFallback;
     }
+
+    /// <summary>
+    /// The document span [Start, End) of the name scope enclosing <paramref name="offset"/>: the
+    /// innermost enclosing <c>ControlTemplate</c>/<c>DataTemplate</c> element (template roots are name
+    /// scopes — an <c>x:Name</c>/<c>Name</c> is visible only within its own template), or the whole
+    /// document when the offset is not inside a template. A name resolves WITHIN this scope: two elements
+    /// with the same name in sibling templates (ComboBox's and DatePicker's <c>PART_EditableTextBox</c>)
+    /// are distinct, and navigation must land in the reference's own template.
+    /// </summary>
+    internal static (int Start, int End) NameScopeSpan(string blanked, int offset)
+    {
+        var stack = new Stack<Match>();
+        foreach (Match tag in TagToken().Matches(blanked))
+        {
+            if (tag.Index >= offset)
+                break;
+
+            var closing = tag.Groups[1].Value.Length > 0;
+            var selfClosed = tag.Groups[4].Value.Length > 0;
+            if (closing)
+            {
+                if (stack.Count > 0)
+                    stack.Pop();
+            }
+            else if (!selfClosed)
+            {
+                stack.Push(tag);
+            }
+        }
+
+        Match? template = null;
+        foreach (var tag in stack) // innermost first
+        {
+            if (tag.Groups[2].Value is "ControlTemplate" or "DataTemplate")
+            {
+                template = tag;
+                break;
+            }
+        }
+
+        if (template is null)
+            return (0, blanked.Length);
+
+        // The enclosing template's matching close tag — balance depth from its open tag.
+        var depth = 0;
+        foreach (Match tag in TagToken().Matches(blanked))
+        {
+            if (tag.Index < template.Index)
+                continue;
+
+            var closing = tag.Groups[1].Value.Length > 0;
+            var selfClosed = tag.Groups[4].Value.Length > 0;
+            if (closing)
+            {
+                if (--depth == 0)
+                    return (template.Index, tag.Index + tag.Length);
+            }
+            else if (!selfClosed)
+            {
+                depth++;
+            }
+        }
+
+        return (template.Index, blanked.Length);
+    }
+
+    /// <summary>True when a name DECLARATION at <paramref name="declarationOffset"/> is in the same name
+    /// scope as a reference at <paramref name="referenceOffset"/> — comparing enclosing-template starts
+    /// (a nested template inside the reference's scope is a distinct scope, so its parts are excluded).</summary>
+    private static bool InSameNameScope(string blanked, int referenceOffset, int declarationOffset)
+        => NameScopeSpan(blanked, referenceOffset).Start == NameScopeSpan(blanked, declarationOffset).Start;
 
     /// <summary>
     /// The type a <c>Setter</c> at <paramref name="offset"/> configures: the nearest enclosing
@@ -1565,7 +1643,7 @@ internal static partial class EditorServices
             if (elementName.Success)
             {
                 // ElementName-anchored re-scope: the named element's type IS the base.
-                var named = NamedElementType(blanked, elementName.Groups[1].Value, namespaces, provider);
+                var named = NamedElementType(blanked, elementName.Groups[1].Value, offset, namespaces, provider);
                 return Finish(path.Length == 0 || path == "." ? named : named is null ? null : WalkPropertyPath(named, path));
             }
 

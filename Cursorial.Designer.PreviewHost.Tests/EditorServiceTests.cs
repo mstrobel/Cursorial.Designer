@@ -555,6 +555,30 @@ public class EditorServiceTests : IDisposable
         Assert.Equal(2, definition.Line); // the x:Name declaration
     }
 
+    [Fact] // template roots are name scopes: navigating a reference to a part must land in the
+    // REFERENCE's own template, not a same-named part in a sibling template (the ComboBox vs
+    // DatePicker PART_EditableTextBox case — the reference in the 2nd template must resolve to the
+    // 2nd declaration, never the 1st).
+    public void Definition_on_named_part_stays_in_reference_template_scope()
+    {
+        var xaml =
+            $"<ResourceDictionary {Xmlns}>\n" +                                        // 1
+            "  <ControlTemplate x:Key=\"A\" TargetType=\"ComboBox\">\n" +               // 2
+            "    <TextBox x:Name=\"PART_EditableTextBox\"/>\n" +                         // 3 (the WRONG target)
+            "  </ControlTemplate>\n" +                                                  // 4
+            "  <ControlTemplate x:Key=\"B\" TargetType=\"DatePicker\">\n" +             // 5
+            "    <TextBox x:Name=\"PART_EditableTextBox\"/>\n" +                         // 6 (the RIGHT target)
+            "    <TextBlock Text=\"{x:Reference PART_EditableTextBox}\"/>\n" +           // 7 (the reference)
+            "  </ControlTemplate>\n" +                                                  // 8
+            "</ResourceDictionary>";                                                    // 9
+        var line7 = "    <TextBlock Text=\"{x:Reference PART_EditableTextBox}\"/>";
+        var column = line7.IndexOf("PART_EditableTextBox", StringComparison.Ordinal) + 3;
+        _session.Execute(new DefinitionCommand { Id = 89, Xaml = xaml, Line = 7, Column = column, FilePath = "/tmp/Theme.xaml" });
+
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+        Assert.Equal(6, definition.Line); // template B's part, not template A's (line 3)
+    }
+
     [Fact]
     public void Analyze_classifies_selector_paths()
     {
