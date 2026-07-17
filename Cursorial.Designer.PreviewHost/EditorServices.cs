@@ -269,6 +269,13 @@ internal static partial class EditorServices
                     }
                 }
 
+                // Markup extensions in ELEMENT form (X56a) are valid wherever a value is: a property-element
+                // value (<Setter.Value>, <Button.Background>) or a resource-dictionary entry (aliasing). Offer
+                // the built-in extension elements there — the resource/binding ones under a ui-mapped prefix,
+                // the x: intrinsics under the intrinsics prefix. Respects a typed xmlns prefix filter.
+                if (IsExtensionElementPosition(context.ParentElement))
+                    items.AddRange(ExtensionElementItems(prefixFilter, namespaces));
+
                 // The parent's COLLECTION-typed members as property elements: the ContentProperty
                 // narrowing above hides them (Style's content is Setters, so <Style.Styles>
                 // never surfaced), yet collections can ONLY be populated in element form.
@@ -749,6 +756,7 @@ internal static partial class EditorServices
 
     // ── Markup-extension completion ────────────────────────────────────────────────────────────
 
+    private const string UiUri = "https://cursorial.dev/ui";
     private const string IntrinsicsUri = "https://cursorial.dev/xaml";
     private const string MarkupCompatibilityUri = "http://schemas.openxmlformats.org/markup-compatibility/2006";
     private static readonly string[] DesignUris =
@@ -756,6 +764,47 @@ internal static partial class EditorServices
         "http://schemas.microsoft.com/expression/blend/2008",
         "https://cursorial.dev/xaml/design",
     ];
+
+    // The built-in markup extensions declarable in ELEMENT form (X56a): the resource/binding ones live in
+    // the UI xmlns; the intrinsics in the x: xmlns.
+    private static readonly string[] UiExtensionElements = ["StaticResource", "DynamicResource", "Binding", "TemplateBinding"];
+    private static readonly string[] IntrinsicExtensionElements = ["Null", "Type", "Static", "Reference"];
+
+    /// <summary>Whether the caret is a plain child of a position that accepts an element-form markup extension:
+    /// a property element (<c>Owner.Member</c> / <c>*.Resources</c>) or a resource-dictionary body.</summary>
+    private static bool IsExtensionElementPosition(string? parentElement)
+        => parentElement is { Length: > 0 } p
+           && (p.Contains('.') || string.Equals(p, "ResourceDictionary", StringComparison.Ordinal));
+
+    /// <summary>The element-form markup-extension completion items for a value position: the resource/binding
+    /// extensions under each ui-mapped prefix and the intrinsics under the x: prefix, honoring a typed xmlns
+    /// prefix filter (bare names when a prefix is already in the buffer).</summary>
+    private static List<CompletionItemInfo> ExtensionElementItems(string? prefixFilter, Dictionary<string, string> namespaces)
+    {
+        var items = new List<CompletionItemInfo>();
+
+        void Add(string prefix, string[] names)
+        {
+            if (prefixFilter is not null && prefix != prefixFilter)
+                return;
+            var bare = prefixFilter is not null || prefix.Length == 0;
+            foreach (var name in names)
+                items.Add(new CompletionItemInfo
+                {
+                    Text = bare ? name : $"{prefix}:{name}",
+                    Kind = "element",
+                    Detail = "markup extension",
+                });
+        }
+
+        foreach (var (prefix, uri) in namespaces.OrderBy(n => n.Key, StringComparer.Ordinal))
+        {
+            if (uri == UiUri) Add(prefix, UiExtensionElements);
+            else if (uri == IntrinsicsUri) Add(prefix, IntrinsicExtensionElements);
+        }
+
+        return items.DistinctBy(i => i.Text).ToList();
+    }
 
     /// <summary>
     /// Completion inside a markup extension, or null when the value carries no unclosed

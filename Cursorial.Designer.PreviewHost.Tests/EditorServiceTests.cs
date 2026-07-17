@@ -116,6 +116,47 @@ public class EditorServiceTests : IDisposable
         public string[] GetKnownMemberNames(Cursorial.UI.Xaml.IXamlType type) => [];
     }
 
+    [Fact] // element-form markup extensions (X56a) are offered as element completions in a value position:
+    // a property-element value and a resource-dictionary body — the resource/binding ones bare, the x:
+    // intrinsics under the x: prefix.
+    public void Complete_offers_markup_extensions_in_element_value_positions()
+    {
+        // A property-element value (<Button.Background>…).
+        _session.Execute(new CompleteCommand
+        {
+            Id = 150,
+            Xaml = $"<Button {Xmlns}>\n    <Button.Background>\n        <Dyn\n    </Button.Background>\n</Button>",
+            Line = 3,
+            Column = 13,
+        });
+        var inValue = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(inValue.Items, i => i is { Text: "DynamicResource", Kind: "element", Detail: "markup extension" });
+        Assert.Contains(inValue.Items, i => i is { Text: "StaticResource", Kind: "element" });
+
+        // A resource-dictionary body (aliasing) — and the x: intrinsics under the x: prefix.
+        _session.Execute(new CompleteCommand
+        {
+            Id = 151,
+            Xaml = $"<ResourceDictionary {Xmlns}>\n    <x:\n</ResourceDictionary>",
+            Line = 2,
+            Column = 8,
+        });
+        var inDict = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(inDict.Items, i => i is { Text: "Null", Kind: "element", Detail: "markup extension" });
+        Assert.Contains(inDict.Items, i => i is { Text: "Static", Kind: "element" });
+
+        // NOT offered where no value is accepted — directly inside an element's content-child list.
+        _session.Execute(new CompleteCommand
+        {
+            Id = 152,
+            Xaml = $"<StackPanel {Xmlns}>\n    <Dyn\n</StackPanel>",
+            Line = 2,
+            Column = 9,
+        });
+        var inContent = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.DoesNotContain(inContent.Items, i => i is { Text: "DynamicResource", Detail: "markup extension" });
+    }
+
     [Fact]
     public void Complete_offers_element_names_after_open_angle()
     {
