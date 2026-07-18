@@ -20,18 +20,17 @@ internal static class FrameSerializer
     /// encoding, so a reduced-capability preview (ansi16, no-color) shows what that terminal
     /// could actually display rather than the pre-quantization intent.
     /// </param>
-    /// <param name="buffer">The composited cell buffer to serialize.</param>
-    /// <param name="quantizer">Optional tier quantizer (what the profiled terminal could show).</param>
     /// <param name="lightBase">Resolve ANSI palette indices through the light-base palette.</param>
+    // ReSharper disable once UnusedParameter.Global
     public static FrameEvent Serialize(CellBuffer buffer, StyleQuantizer? quantizer = null, bool lightBase = false)
     {
         var styles = new List<StyleInfo>();
         var styleIndices = new Dictionary<Style, int>();
-        var lines = new List<IReadOnlyList<Protocol.TextRun>>(buffer.Rows);
+        var lines = new List<IReadOnlyList<TextRun>>(buffer.Rows);
 
         for (var row = 0; row < buffer.Rows; row++)
         {
-            var runs = new List<Protocol.TextRun>();
+            var runs = new List<TextRun>();
             var runText = new StringBuilder();
             var runWidth = 0;
             var runStyle = -1;
@@ -45,7 +44,7 @@ internal static class FrameSerializer
                 var style = GetStyleIndex(cell.Style, quantizer, styles, styleIndices);
                 if (style != runStyle && runWidth > 0)
                 {
-                    runs.Add(new Protocol.TextRun { Text = runText.ToString(), StyleIndex = runStyle, Width = runWidth });
+                    runs.Add(new TextRun { Text = runText.ToString(), StyleIndex = runStyle, Width = runWidth });
                     runText.Clear();
                     runWidth = 0;
                 }
@@ -60,7 +59,7 @@ internal static class FrameSerializer
             }
 
             if (runWidth > 0)
-                runs.Add(new Protocol.TextRun { Text = runText.ToString(), StyleIndex = runStyle, Width = runWidth });
+                runs.Add(new TextRun { Text = runText.ToString(), StyleIndex = runStyle, Width = runWidth });
 
             lines.Add(runs);
         }
@@ -109,7 +108,7 @@ internal static class FrameSerializer
         var changed = new List<ChangedRowInfo>(changedRows.Count);
         foreach (var row in changedRows)
         {
-            var runs = new List<Protocol.TextRun>();
+            var runs = new List<TextRun>();
             foreach (var run in next.Lines[row])
             {
                 if (!remap.TryGetValue(run.StyleIndex, out var mapped))
@@ -119,7 +118,7 @@ internal static class FrameSerializer
                     remap[run.StyleIndex] = mapped;
                 }
 
-                runs.Add(new Protocol.TextRun { Text = run.Text, StyleIndex = mapped, Width = run.Width });
+                runs.Add(new TextRun { Text = run.Text, StyleIndex = mapped, Width = run.Width });
             }
 
             changed.Add(new ChangedRowInfo { Index = row, Runs = runs });
@@ -173,7 +172,7 @@ internal static class FrameSerializer
             return existing;
 
         var index = styles.Count;
-        styles.Add(ToStyleInfo(quantizer is null ? style : quantizer.Quantize(in style)));
+        styles.Add(ToStyleInfo(quantizer?.Quantize(in style) ?? style));
         indices.Add(style, index);
         return index;
     }
