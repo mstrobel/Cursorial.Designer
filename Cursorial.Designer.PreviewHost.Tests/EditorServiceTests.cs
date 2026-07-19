@@ -268,6 +268,48 @@ public class EditorServiceTests : IDisposable
         Assert.Contains(completions.Items, i => i is { Text: "x:Name", Kind: "attribute" });
     }
 
+    [Fact] // Style.RequiresCapabilities (the @media-model capability gate) completes like any enum property.
+    public void Complete_offers_capability_values_for_style_requires()
+    {
+        var line2 = "    <Style RequiresCapabilities=\"";
+        var xaml = $"<StackPanel {Xmlns}>\n{line2}\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 5, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "NoColor", Kind: "value", Detail: "StyleCapabilities" });
+        Assert.Contains(completions.Items, i => i is { Text: "Unicode", Kind: "value" });
+        Assert.Contains(completions.Items, i => i is { Text: "Truecolor", Kind: "value" });
+    }
+
+    [Fact] // the [Flags] continuation: after "NoColor, " the used member and None drop out, and the other
+           // COLOR TIERS are suppressed (mutually exclusive under AND — Style.Seal rejects the combination,
+           // so completion must not invite it); orthogonal axes like Motion/Unicode remain.
+    public void Complete_flags_continuation_excludes_used_none_and_conflicting_tiers()
+    {
+        var line2 = "    <Style RequiresCapabilities=\"NoColor, ";
+        var xaml = $"<StackPanel {Xmlns}>\n{line2}\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 5, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Motion", Kind: "value" });
+        Assert.Contains(completions.Items, i => i is { Text: "Unicode", Kind: "value" });
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "NoColor", Kind: "value" });  // already used
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "None", Kind: "value" });     // only stands alone
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Ansi16", Kind: "value" });   // conflicting tier
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Truecolor", Kind: "value" });
+    }
+
+    [Fact] // the property itself surfaces in attribute-name completion on <Style> (via reflection metadata).
+    public void Complete_offers_requires_capabilities_attribute_on_style()
+    {
+        var line2 = "    <Style Requi";
+        var xaml = $"<StackPanel {Xmlns}>\n{line2}\n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 5, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "RequiresCapabilities", Kind: "attribute" });
+    }
+
     [Fact]
     public void Complete_offers_enum_values_inside_attribute_quotes()
     {
@@ -1089,7 +1131,7 @@ public class EditorServiceTests : IDisposable
 
         // Bare names after the dot (the prefix breaks there); TextElement's attached set.
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
-        Assert.Contains(completions.Items, i => i is { Text: "TextAttributes" });
+        Assert.Contains(completions.Items, i => i is { Text: "TextWeight" });
         Assert.DoesNotContain(completions.Items, i => i.Text.Contains('.'));
     }
 

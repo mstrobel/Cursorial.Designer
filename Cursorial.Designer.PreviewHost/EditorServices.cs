@@ -447,8 +447,33 @@ internal static partial class EditorServices
 
                 if (underlying.IsEnum)
                 {
+                    // A [Flags] value completes per SEGMENT (the IDE's identifier-run prefix stops at the
+                    // comma, so plain member items insert correctly mid-list): members already present are
+                    // excluded, "None" only stands alone, and a second COLOR TIER is excluded once one is
+                    // present — StyleCapabilities tiers are mutually exclusive under the AND semantics
+                    // (Style.Seal throws on the combination; completion should not invite it).
+                    var isFlags = underlying.IsDefined(typeof(FlagsAttribute), inherit: false);
+                    var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    if (isFlags && context.Prefix.Contains(','))
+                    {
+                        var segments = context.Prefix.Split(',');
+                        for (var i = 0; i < segments.Length - 1; i++) // complete segments; the last is the typed run
+                            used.Add(segments[i].Trim());
+                    }
+
+                    var usedHasTier = underlying == typeof(StyleCapabilities) && used.Overlaps(CapabilityTierNames);
+
                     foreach (var name in Enum.GetNames(underlying))
+                    {
+                        if (isFlags && used.Count > 0 && (used.Contains(name) || name == "None"))
+                            continue;
+
+                        if (usedHasTier && CapabilityTierNames.Contains(name))
+                            continue;
+
                         items.Add(new CompletionItemInfo { Text = name, Kind = "value", Detail = underlying.Name });
+                    }
                 }
                 else if (underlying == typeof(bool))
                 {
@@ -1064,6 +1089,12 @@ internal static partial class EditorServices
             return SelectorTypeItems(namespaces, provider); // AncestorType= and friends: element types
         return [];
     }
+
+    /// <summary>The mutually exclusive color-tier members of <see cref="StyleCapabilities"/> — once one is
+    /// in a flags list, the others are suppressed from completion (the combination can never hold and
+    /// <c>Style.Seal</c> rejects it).</summary>
+    private static readonly HashSet<string> CapabilityTierNames =
+        new(["Truecolor", "Ansi256", "Ansi16", "NoColor"], StringComparer.OrdinalIgnoreCase);
 
     [GeneratedRegex("\\w+:Key\\s*=\\s*\"([^\"]+)\"")]
     private static partial Regex KeyAttribute();

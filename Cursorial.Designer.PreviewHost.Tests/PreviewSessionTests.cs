@@ -514,7 +514,7 @@ public class PreviewSessionTests : IDisposable
     {
         Initialize();
         Load($"""
-              <StackPanel {Xmlns} TextElement.TextAttributes="Bold">
+              <StackPanel {Xmlns} Icon.IconBrush="Red">
                   <TextBlock x:Name="Child" Text="inheriting"/>
               </StackPanel>
               """);
@@ -526,14 +526,14 @@ public class PreviewSessionTests : IDisposable
         _session.Execute(new GetPropertiesCommand { Id = 82, ElementId = textId });
         var properties = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
 
-        // The child never sets TextAttributes; the value flows from the ancestor. GetSetProperties
+        // The child never sets IconBrush; the value flows from the ancestor. GetSetProperties
         // excludes inherited-only contributions by design — the registry's inheriting set
         // (UIProperties.Inheriting, framework PR #17) is how the inspector knows to ask.
-        // (TextAttributes rather than Foreground: no theme touches it, so the lane is stable.)
-        var attrs = Assert.Single(properties.Items, p => p.Name == "TextAttributes");
+        // (IconBrush rather than Foreground: no theme touches it, so the lane is stable.)
+        var attrs = Assert.Single(properties.Items, p => p.Name == "IconBrush");
         Assert.Equal("Inherited", attrs.ValueSource);
         // True attached usage (no TextBlock AddOwner) keeps the owner qualification.
-        Assert.Equal("TextElement", attrs.DeclaringType);
+        Assert.Equal("Icon", attrs.DeclaringType);
     }
 
     [Fact]
