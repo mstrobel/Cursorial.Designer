@@ -25,6 +25,7 @@
         <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Themes\Cursorial.UI.Themes.csproj" />
         <!-- The whole first-party control family previews out of the box. -->
         <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Bars\Cursorial.UI.Bars.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.DataViews\Cursorial.UI.DataViews.csproj" />
         <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Dialogs\Cursorial.UI.Dialogs.csproj" />
     </ItemGroup>
 
