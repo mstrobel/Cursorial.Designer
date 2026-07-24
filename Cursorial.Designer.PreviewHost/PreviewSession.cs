@@ -686,10 +686,18 @@ internal sealed class PreviewSession : IDisposable
             return;
         }
 
+        // The terminal cannot read ambient modifier state, so the previewer snapshots it at pointer time and
+        // sends it here; apply it to the injected event so Shift/Ctrl-click and Shift-drag gestures reach the tree.
+        if (!InputMapper.TryMapModifiers(command.Modifiers, out var modifiers, out var unknown))
+        {
+            _emit(new ErrorEvent { ReplyTo = command.Id, Message = $"Unknown pointer modifier '{unknown}'." });
+            return;
+        }
+
         switch (command.Kind)
         {
             case "move":
-                host.SendMouseMove(command.Column, command.Row);
+                host.SendMouseMove(command.Column, command.Row, modifiers: modifiers);
                 break;
             case "down" or "up":
                 host.SendInput(new MouseEvent
@@ -698,7 +706,7 @@ internal sealed class PreviewSession : IDisposable
                     Position = position,
                     Button = button,
                     ButtonsHeld = MouseButtons.None,
-                    Modifiers = KeyModifiers.None,
+                    Modifiers = modifiers,
                     Timestamp = default, // SendInput stamps default timestamps on the fake clock
                 });
                 break;

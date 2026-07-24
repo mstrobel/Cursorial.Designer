@@ -62,6 +62,12 @@ data class PointerCommand(
     val row: Int,
     /** One of [PointerButton]; null for pure move events. */
     val button: String? = null,
+    /**
+     * Keyboard modifiers held at pointer time (`ctrl`/`alt`/`shift`/`meta`), snapshotted from the AWT event.
+     * A terminal cannot read ambient modifier state, so the previewer forwards it for the host to apply —
+     * enabling Shift/Ctrl-click and Shift-drag gestures.
+     */
+    val modifiers: List<String> = emptyList(),
 ) : PreviewerCommand {
     override val type: String = "pointer"
 }

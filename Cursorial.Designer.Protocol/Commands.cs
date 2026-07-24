@@ -94,6 +94,14 @@ public sealed class PointerCommand : PreviewCommand
 
     /// <summary><c>left</c>, <c>right</c>, or <c>middle</c>; defaults to <c>left</c>.</summary>
     public string? Button { get; init; }
+
+    /// <summary>
+    /// The keyboard modifiers held at pointer time — any of <c>ctrl</c>, <c>alt</c>, <c>shift</c> (also
+    /// <c>super</c>, <c>meta</c>). A terminal cannot read ambient modifier state, so the previewer snapshots
+    /// it from the pointer event and forwards it here; the host applies it to the injected mouse event
+    /// (enabling Shift/Ctrl-click and Shift-drag gestures). Omitted/empty = no modifiers.
+    /// </summary>
+    public IReadOnlyList<string>? Modifiers { get; init; }
 }
 
 /// <summary>Synthetic keyboard input (a named key or a single printable character).</summary>

@@ -24,7 +24,10 @@ the session survives errors and keeps rendering the previous content.
 {"type":"loadXaml","xaml":"<StackPanel …>","sourceUri":"file:///…/MainView.xaml",
  "assemblies":["/path/UserApp.dll"]}   // user build output to register for type resolution
 {"type":"resize","columns":100,"rows":30}
-{"type":"pointer","kind":"move|down|up","column":5,"row":2,"button":"left|right|middle"}
+{"type":"pointer","kind":"move|down|up","column":5,"row":2,"button":"left|right|middle",
+ "modifiers":["ctrl","alt","shift"]}       // ambient modifiers at pointer time (a terminal can't read
+                                           // them), snapshotted by the previewer for Shift/Ctrl-click +
+                                           // Shift-drag; omitted/empty = none
 {"type":"key","key":"Enter","modifiers":["ctrl","alt","shift"],
  "kind":"down|up"}                         // omitted = complete press (down + up);
                                            // down/up are real transitions — holding a key holds

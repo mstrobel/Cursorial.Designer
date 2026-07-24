@@ -60,6 +60,37 @@ public class ProtocolTests
     }
 
     [Fact]
+    public void Pointer_command_round_trips_modifiers()
+    {
+        var line = PreviewProtocol.Serialize(new PointerCommand
+        {
+            Kind = "down",
+            Column = 5,
+            Row = 2,
+            Button = "left",
+            Modifiers = ["ctrl", "shift"],
+        });
+
+        Assert.DoesNotContain('\n', line);
+        Assert.Contains("\"modifiers\":[\"ctrl\",\"shift\"]", line); // ambient snapshot the terminal can't read
+
+        var parsed = Assert.IsType<PointerCommand>(PreviewProtocol.DeserializeCommand(line));
+        Assert.Equal("down", parsed.Kind);
+        Assert.Equal(["ctrl", "shift"], parsed.Modifiers);
+    }
+
+    [Fact]
+    public void Pointer_command_omits_absent_modifiers()
+    {
+        // A move with no modifiers must not carry an empty array — the field is optional on the wire.
+        var line = PreviewProtocol.Serialize(new PointerCommand { Kind = "move", Column = 1, Row = 1 });
+        Assert.DoesNotContain("\"modifiers\"", line);
+
+        var parsed = Assert.IsType<PointerCommand>(PreviewProtocol.DeserializeCommand(line));
+        Assert.Null(parsed.Modifiers);
+    }
+
+    [Fact]
     public void Unknown_command_type_throws()
     {
         Assert.ThrowsAny<System.Text.Json.JsonException>(

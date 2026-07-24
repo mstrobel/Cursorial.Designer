@@ -703,6 +703,68 @@ public class PreviewSessionTests : IDisposable
 
         _session.Execute(new PointerCommand { Id = 13, Kind = "down", Column = 0, Row = 0, Button = "chorded" });
         Assert.Equal(13, Assert.IsType<ErrorEvent>(_events.Last(e => e is ErrorEvent)).ReplyTo);
+
+        _session.Execute(new PointerCommand { Id = 14, Kind = "down", Column = 0, Row = 0, Modifiers = ["hyperdrive"] });
+        Assert.Equal(14, Assert.IsType<ErrorEvent>(_events.Last(e => e is ErrorEvent)).ReplyTo);
+    }
+
+    [Fact]
+    public void Ctrl_click_toggles_multi_select_via_forwarded_modifier()
+    {
+        // A terminal can't read ambient modifier state, so the previewer snapshots it onto the pointer
+        // command and the host applies it. End-to-end proof: in Multiple mode a plain click SELECTS an item
+        // and a Ctrl+click on that same item TOGGLES it back off — IsSelected reverting to false is only
+        // possible if the "ctrl" modifier crossed the wire and was applied to the injected mouse event.
+        Initialize();
+        Load($"""
+            <ListBox {Xmlns} SelectionMode="Multiple">
+              <ListBoxItem Content="One"/>
+              <ListBoxItem Content="Two"/>
+            </ListBox>
+            """);
+
+        ClickItem(ctrl: false);                                 // plain click selects item 0
+        Assert.True(ItemIsSelected(), "a plain click should select the item");
+
+        ClickItem(ctrl: true);                                  // Ctrl+click the same item toggles it off
+        Assert.False(ItemIsSelected(), "a Ctrl+click should toggle the item back off — the modifier was applied");
+
+        void ClickItem(bool ctrl)
+        {
+            var modifiers = ctrl ? new[] { "ctrl" } : System.Array.Empty<string>();
+            var (col, row) = ItemCell();
+            _session.Execute(new PointerCommand { Kind = "down", Column = col, Row = row, Modifiers = modifiers });
+            _session.Execute(new PointerCommand { Kind = "up", Column = col, Row = row, Modifiers = modifiers });
+        }
+    }
+
+    // The first cell (scanning the top rows) that hit-tests onto a ListBoxItem — robust to the ListBox's
+    // border/padding so the click lands on a real item container rather than a guessed coordinate.
+    private (int Column, int Row) ItemCell()
+    {
+        for (var row = 0; row < 8; row++)
+        for (var col = 0; col < 20; col++)
+        {
+            _session.Execute(new HitTestCommand { Column = col, Row = row });
+            var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+            if (hit.Elements.Any(e => e.ElementType == "ListBoxItem"))
+                return (col, row);
+        }
+
+        throw new Xunit.Sdk.XunitException("No ListBoxItem was found in the rendered frame.");
+    }
+
+    // Whether the first item container reports ListBoxItem.IsSelected (a StyledProperty the inspector
+    // surfaces; IncludeDefaults so the toggled-off `False` still appears rather than dropping out).
+    private bool ItemIsSelected()
+    {
+        var (col, row) = ItemCell();
+        _session.Execute(new HitTestCommand { Column = col, Row = row });
+        var hit = Assert.IsType<HitTestResultEvent>(_events.Last(e => e is HitTestResultEvent));
+        var itemId = hit.Elements.First(e => e.ElementType == "ListBoxItem").ElementId;
+        _session.Execute(new GetPropertiesCommand { ElementId = itemId, IncludeDefaults = true });
+        var props = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
+        return props.Items.FirstOrDefault(p => p.Name == "IsSelected")?.Value == "True";
     }
 
     [Fact]

@@ -16,6 +16,7 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
+import java.awt.event.InputEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -47,8 +48,9 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
             repaint()
         }
 
-    /** Called for mouse activity over the grid. Send a `pointer` command. */
-    var pointerListener: ((kind: String, column: Int, row: Int, button: String?) -> Unit)? = null
+    /** Called for mouse activity over the grid. Send a `pointer` command. The modifiers are the ambient
+     *  keyboard-modifier snapshot at event time (a terminal can't read ambient state, so the previewer forwards it). */
+    var pointerListener: ((kind: String, column: Int, row: Int, button: String?, modifiers: List<String>) -> Unit)? = null
 
     /** Called on Alt+Click; the editor issues a `hitTest` and later calls [showSelection]. */
     var hitTestListener: ((column: Int, row: Int) -> Unit)? = null
@@ -160,13 +162,13 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
                     hitTestListener?.invoke(column, row)
                     return
                 }
-                pointerListener?.invoke(PointerKind.DOWN, column, row, buttonOf(e))
+                pointerListener?.invoke(PointerKind.DOWN, column, row, buttonOf(e), modifiersOf(e))
             }
 
             override fun mouseReleased(e: MouseEvent) {
                 val (column, row) = cellAt(e) ?: return
                 if (selectMode || e.isAltDown) return
-                pointerListener?.invoke(PointerKind.UP, column, row, buttonOf(e))
+                pointerListener?.invoke(PointerKind.UP, column, row, buttonOf(e), modifiersOf(e))
             }
 
             override fun mouseMoved(e: MouseEvent) = pointerMove(e)
@@ -176,7 +178,7 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
                 val cell = cellAt(e) ?: return
                 if (cell == lastPointerCell) return // one move event per cell, not per pixel
                 lastPointerCell = cell
-                pointerListener?.invoke(PointerKind.MOVE, cell.first, cell.second, null)
+                pointerListener?.invoke(PointerKind.MOVE, cell.first, cell.second, null, modifiersOf(e))
             }
         }
         addMouseListener(mouseHandler)
@@ -415,7 +417,9 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
         else -> PointerButton.LEFT
     }
 
-    private fun modifiersOf(e: KeyEvent): List<String> = buildList {
+    // InputEvent is the shared base of KeyEvent and MouseEvent, so this snapshots the ambient modifier
+    // state for both keyboard and pointer events.
+    private fun modifiersOf(e: InputEvent): List<String> = buildList {
         if (e.isControlDown) add("ctrl")
         if (e.isAltDown) add("alt")
         if (e.isShiftDown) add("shift")

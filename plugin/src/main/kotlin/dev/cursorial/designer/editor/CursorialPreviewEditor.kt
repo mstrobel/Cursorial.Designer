@@ -329,8 +329,8 @@ class CursorialPreviewEditor(
                 hostProcess?.sendCommand(DescribeElementCommand(id, selected.elementId))
             }
         }
-        gridPanel.pointerListener = { kind, column, row, button ->
-            hostProcess?.sendCommand(PointerCommand(kind, column, row, button))
+        gridPanel.pointerListener = { kind, column, row, button, modifiers ->
+            hostProcess?.sendCommand(PointerCommand(kind, column, row, button, modifiers))
         }
         gridPanel.hitTestListener = { column, row ->
             lastHitCell = column to row
