@@ -754,7 +754,7 @@ internal static partial class EditorServices
         var canonical = Canonical(rawExtensionName, namespaces);
 
         if (canonical == "x:Static")
-            return StaticPathSymbol(token, namespaces, provider);
+            return StaticPathSymbol(token, offsetInValue - start, namespaces, provider);
 
         if (token.Length == 0)
             return null;
@@ -1091,12 +1091,26 @@ internal static partial class EditorServices
         return new SymbolInfo(name, $"pseudo-class {name}", null, null, [], null);
     }
 
-    /// <summary>The <c>{x:Static Owner.Member}</c> path symbol: static field (with value) or property.</summary>
-    private static SymbolInfo? StaticPathSymbol(string path, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    /// <summary>
+    /// The <c>{x:Static Owner.Member}</c> path symbol, resolved for the half the caret is ON: the OWNER TYPE
+    /// before the final dot, the static field or property after it.
+    /// </summary>
+    /// <remarks>
+    /// The caret used to be ignored entirely, so the whole <c>Owner.Member</c> token resolved to the member —
+    /// hovering <c>ThemeKeys</c> showed the docs for <c>ThemeKeys.SomeBrush</c>, and there was no way to reach
+    /// the type at all. Mirrors <see cref="TypeNameOrPrefixSymbol"/>, which already dispatches on the caret's
+    /// side of the <c>:</c> separator.
+    /// </remarks>
+    private static SymbolInfo? StaticPathSymbol(string path, int offsetInToken, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
         var lastDot = path.LastIndexOf('.');
         if (lastDot <= 0)
             return null;
+
+        // Caret on (or before) the final dot ⇒ the owner half. The dot itself counts as the owner's, matching
+        // how the prefix path treats its ':' — landing on a separator should resolve the thing it terminates.
+        if (offsetInToken <= lastDot)
+            return SymbolFromName(path[..lastDot], offsetInToken, namespaces, provider);
 
         var ownerType = ResolveElement(path[..lastDot], namespaces, provider)?.ClrType.UnderlyingSystemType;
         var memberName = path[(lastDot + 1)..];
@@ -1842,7 +1856,7 @@ internal static partial class EditorServices
                 }
 
                 if (hits.Count == 0)
-                    return null;
+                    return DeclaringDocumentByName(pdb, type); // no member bodies at all — see below
 
                 // Partial classes split across a hand-written half and a GENERATED half (x:Class
                 // code-behinds); the generated file often carries more member bodies, but the
@@ -1866,6 +1880,66 @@ internal static partial class EditorServices
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// The declaration of a type that has NO member bodies, found through the PDB's document table instead of
+    /// its sequence points.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other path here rides sequence points, which belong to method bodies — so a type made entirely of
+    /// <c>const</c> fields has none, anywhere, and simply could not be navigated to. That is not an exotic
+    /// shape: it is exactly what a "keys" class is, and <c>ThemeKeys</c> (193 consts, no methods) is the most
+    /// referenced type in every theme file. Navigation failed precisely where it was wanted most.
+    /// </para>
+    /// <para>
+    /// Two passes over the documents the PDB already lists. First the cheap one: a file NAMED after the type,
+    /// which is this codebase's convention and costs one string compare per document. Then, only if that
+    /// misses, read candidates and look for the declaration — bounded to C# documents under a directory that
+    /// exists locally, since a PDB from a NuGet-restored assembly names paths from a build machine we cannot
+    /// read anyway. A miss returns null and simply does not navigate, exactly as before.
+    /// </para>
+    /// </remarks>
+    private static (string File, int Line, int Column)? DeclaringDocumentByName(MetadataReader pdb, Type type)
+    {
+        try
+        {
+            var expected = type.Name + ".cs";
+            var candidates = new List<string>();
+
+            foreach (var handle in pdb.Documents)
+            {
+                if (pdb.GetDocument(handle) is var document && pdb.GetString(document.Name) is not { Length: > 0 } path)
+                    continue;
+
+                if (!path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // The exact-name pass — one type per file is the convention here, so this hits first and cheaply.
+                if (Path.GetFileName(path).Equals(expected, StringComparison.OrdinalIgnoreCase) &&
+                    TypeDeclarationLine(path, type.Name) is { } named)
+                {
+                    return named;
+                }
+
+                if (File.Exists(path))
+                    candidates.Add(path);
+            }
+
+            // The scan pass. Only runs when the filename guess missed, and only over documents that are
+            // actually readable on this machine.
+            foreach (var path in candidates)
+            {
+                if (TypeDeclarationLine(path, type.Name) is { } found)
+                    return found;
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
     }
 
     /// <summary>The 1-based position of <c>class/struct/… {name}</c> in <paramref name="path"/>, when present.</summary>

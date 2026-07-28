@@ -601,6 +601,46 @@ public class EditorServiceTests : IDisposable
         Assert.Contains("ThemeKeys.ElevationDesktop", hover.Signature);
     }
 
+    [Fact] // {x:Static Owner.Member} resolves for the half the caret is ON — the whole token used to mean the member
+    public void Hover_on_the_owner_half_of_an_x_static_resolves_the_type()
+    {
+        var xaml = $"<StackPanel {Xmlns} Tag=\"{{x:Static ThemeKeys.ElevationDesktop}}\"/>";
+
+        // Caret INSIDE "ThemeKeys" — the owner half.
+        var ownerColumn = xaml.IndexOf("ThemeKeys", StringComparison.Ordinal) + 4;
+        _session.Execute(new HoverCommand { Id = 90, Xaml = xaml, Line = 1, Column = ownerColumn });
+        var onOwner = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+
+        // The TYPE, not the field it happens to precede. It showed the field's docs, so there was no way to
+        // reach the class at all — and go-to-definition inherited the same misclassification.
+        Assert.Contains("ThemeKeys", onOwner.Signature);
+        Assert.DoesNotContain("ElevationDesktop", onOwner.Signature);
+
+        // Caret INSIDE the member half still resolves the member, unchanged.
+        var memberColumn = xaml.IndexOf("ElevationDesktop", StringComparison.Ordinal) + 4;
+        _session.Execute(new HoverCommand { Id = 91, Xaml = xaml, Line = 1, Column = memberColumn });
+        var onMember = Assert.IsType<HoverInfoEvent>(_events.Last(e => e is HoverInfoEvent));
+
+        Assert.Contains("const", onMember.Signature);
+        Assert.Contains("ThemeKeys.ElevationDesktop", onMember.Signature);
+    }
+
+    [Fact] // a type of nothing but consts has NO sequence points anywhere, so it could not be navigated to at all
+    public void Definition_of_a_const_only_type_falls_back_to_the_pdb_document_table()
+    {
+        var xaml = $"<StackPanel {Xmlns} Tag=\"{{x:Static ThemeKeys.ElevationDesktop}}\"/>";
+        var ownerColumn = xaml.IndexOf("ThemeKeys", StringComparison.Ordinal) + 4;
+
+        _session.Execute(new DefinitionCommand { Id = 92, Xaml = xaml, Line = 1, Column = ownerColumn });
+        var definition = Assert.IsType<DefinitionEvent>(_events.Last(e => e is DefinitionEvent));
+
+        // ThemeKeys is ~193 const fields and no methods, so the sequence-point path finds nothing anywhere.
+        // The document-table fallback lands on the declaration itself.
+        Assert.NotNull(definition.File);
+        Assert.EndsWith("ThemeKeys.cs", definition.File!, StringComparison.OrdinalIgnoreCase);
+        Assert.True(definition.Line > 0);
+    }
+
     [Fact]
     public void Hover_resolves_named_binding_paths_against_design_data_context()
     {
