@@ -532,8 +532,13 @@ public class PreviewSessionTests : IDisposable
         // (IconBrush rather than Foreground: no theme touches it, so the lane is stable.)
         var attrs = Assert.Single(properties.Items, p => p.Name == "IconBrush");
         Assert.Equal("Inherited", attrs.ValueSource);
-        // True attached usage (no TextBlock AddOwner) keeps the owner qualification.
-        Assert.Equal("Icon", attrs.DeclaringType);
+        // True attached usage keeps the owner qualification — and the owner is the type the
+        // property is REGISTERED on, not the one that AddOwners it. IconBrush is
+        // `RegisterAttached<Control, UIElement, IBrush?>` (Cursorial.UI/Controls/Icon.cs:38), with
+        // `AddOwner<Icon>()` at :99, so the answer is Control. This asserted "Icon" from when it
+        // was a plain property owned by Icon, and went stale on 2026-07-09 when 5f097e13 turned it
+        // attached; nothing caught it until the release branch built against v0.5.0.
+        Assert.Equal("Control", attrs.DeclaringType);
     }
 
     [Fact]
