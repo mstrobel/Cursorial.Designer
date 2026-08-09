@@ -1,9 +1,7 @@
 package dev.cursorial.designer.settings
 
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.nio.file.Files
@@ -65,11 +63,25 @@ class CursorialDesignerSettings(private val project: Project) {
      * checkout's freshly built Debug host still wins over the bundled Release copy.
      */
     private fun bundledHostDll(): Path? {
-        // PluginManagerCore.getPlugin is internal API (the JetBrains verifier rejects it); the
-        // PluginManager facade is the supported way to reach one's own descriptor.
-        val plugin = PluginManager.getInstance().findEnabledPlugin(PluginId.getId("dev.cursorial.designer"))
-                     ?: return null
-        val bundled = plugin.pluginPath.resolve("dotnet").resolve("Cursorial.Designer.PreviewHost.dll")
-        return bundled.takeIf { Files.isRegularFile(it) }
+        // Derived from where this class was loaded, NOT from the plugin API. Both routes into a
+        // descriptor are @ApiStatus.Internal and the verifier rejects either —
+        // PluginManagerCore.getPlugin, and PluginManager.findEnabledPlugin, which looks like a
+        // public facade and is not. A code-source walk is plain JDK, so it cannot acquire an
+        // annotation in some future release.
+        //
+        // Layout is <pluginRoot>/lib/<plugin>.jar beside <pluginRoot>/dotnet/, in both the
+        // buildPlugin zip and the runIde sandbox. Walk up rather than assuming the depth, so a
+        // repackaging that adds or removes a level does not silently return null.
+        val location = javaClass.protectionDomain?.codeSource?.location ?: return null
+        var dir = runCatching { Paths.get(location.toURI()) }.getOrNull()?.parent
+
+        var levels = 0
+        while (dir != null && levels++ < 3) {
+            val candidate = dir.resolve("dotnet").resolve("Cursorial.Designer.PreviewHost.dll")
+            if (Files.isRegularFile(candidate)) return candidate
+            dir = dir.parent
+        }
+
+        return null
     }
 }
