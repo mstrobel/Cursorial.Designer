@@ -1,6 +1,6 @@
 package dev.cursorial.designer.settings
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.PluginId
@@ -65,7 +65,10 @@ class CursorialDesignerSettings(private val project: Project) {
      * checkout's freshly built Debug host still wins over the bundled Release copy.
      */
     private fun bundledHostDll(): Path? {
-        val plugin = PluginManagerCore.getPlugin(PluginId.getId("dev.cursorial.designer")) ?: return null
+        // PluginManagerCore.getPlugin is internal API (the JetBrains verifier rejects it); the
+        // PluginManager facade is the supported way to reach one's own descriptor.
+        val plugin = PluginManager.getInstance().findEnabledPlugin(PluginId.getId("dev.cursorial.designer"))
+                     ?: return null
         val bundled = plugin.pluginPath.resolve("dotnet").resolve("Cursorial.Designer.PreviewHost.dll")
         return bundled.takeIf { Files.isRegularFile(it) }
     }
