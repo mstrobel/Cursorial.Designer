@@ -21,6 +21,14 @@ object CursorialDesignerIcons {
     val TerminalProfile: Icon = load("/icons/terminalProfile.svg")
     val IncludeDefaults: Icon = load("/icons/valueSourceDefault.svg")
 
+    /**
+     * The theme-base toggle. Originally `AllIcons.MeetNewUi.Dark/LightThemeSelected`, which the
+     * JetBrains verifier reports as unresolved against RD-262 — the `MeetNewUi` namespace is the
+     * new-UI experiment's and its fields come and go. These are ours, so they cannot vanish.
+     */
+    val ThemeDark: Icon = load("/icons/themeDark.svg")
+    val ThemeLight: Icon = load("/icons/themeLight.svg")
+
     /** Inline provenance icons render at 12×12 DIU so they read as annotations, not tree glyphs. */
     private fun sourceIcon(icon: Icon): Icon = IconUtil.scale(icon, null, 12f / 16f)
 

@@ -8,7 +8,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -255,9 +255,7 @@ class CursorialPreviewEditor(
     private var selectionIndex: Int = 0
 
     private val document: Document? =
-        ReadAction.compute<Document?, RuntimeException> {
-            FileDocumentManager.getInstance().getDocument(file)
-        }
+        runReadAction { FileDocumentManager.getInstance().getDocument(file) }
 
     private var hostProcess: PreviewHostProcess? = null
 
@@ -375,7 +373,7 @@ class CursorialPreviewEditor(
     private fun sendLoadXaml() {
         val process = hostProcess ?: return
         val document = document ?: return
-        val xaml = ReadAction.compute<String, RuntimeException> { document.text }
+        val xaml = runReadAction { document.text }
 
         val located = UserAssemblyLocator.locate(file)
         located.problem?.let { statusLabel.text = it }
@@ -555,7 +553,7 @@ class CursorialPreviewEditor(
 
     private fun buildToolbar(): JComponent {
         val group = DefaultActionGroup().apply {
-            add(object : ToggleAction("Dark", "Toggle the preview between the dark and light theme base", AllIcons.MeetNewUi.DarkThemeSelected) {
+            add(object : ToggleAction("Dark", "Toggle the preview between the dark and light theme base", CursorialDesignerIcons.ThemeDark) {
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
                 override fun isSelected(e: AnActionEvent) = themeBase == ThemeBase.DARK
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
@@ -566,8 +564,8 @@ class CursorialPreviewEditor(
                 override fun update(e: AnActionEvent) {
                     super.update(e)
                     e.presentation.icon =
-                        if (themeBase == ThemeBase.DARK) AllIcons.MeetNewUi.DarkThemeSelected
-                        else AllIcons.MeetNewUi.LightThemeSelected
+                        if (themeBase == ThemeBase.DARK) CursorialDesignerIcons.ThemeDark
+                        else CursorialDesignerIcons.ThemeLight
                 }
             })
             add(DefaultActionGroup("Tier", true).apply {
