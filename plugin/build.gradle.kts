@@ -72,10 +72,29 @@ val publishPreviewHost by tasks.registering(Exec::class) {
     workingDir = projectDir.parentFile
     val output = layout.buildDirectory.dir("previewHost")
     outputs.dir(output)
+
+    // ALWAYS re-publish. This task declares an output and cannot honestly declare its inputs:
+    // the host's real inputs are the sibling Cursorial checkout's sources, which live outside
+    // this build and change constantly. Gradle treats outputs-without-inputs as up-to-date
+    // forever after the first run, so the bundled dotnet/ payload silently froze — it sat at an
+    // Aug 6 build for three days, and every plugin zip cut in that window shipped it. `dotnet
+    // publish` does its own incremental work, so the cost of always running is small; the cost
+    // of getting it wrong is a distribution whose bundled host does not match its own source.
+    outputs.upToDateWhen { false }
+
+    // Which framework the bundled host is built against. Defaults to Directory.Build.props'
+    // sibling-checkout path, i.e. whatever the developer happens to have checked out — fine for
+    // runIde, wrong for a release. A release build must pin this at the tagged framework it
+    // claims to match, e.g.
+    //   ./gradlew buildPlugin -PcursorialRepoRoot=/path/to/Cursorial/.worktrees/v0.5.0/
+    val repoRoot = providers.gradleProperty("cursorialRepoRoot").orNull
+
     commandLine(
-        "dotnet", "publish", "Cursorial.Designer.PreviewHost",
-        "-c", "Release",
-        "-o", output.get().asFile.absolutePath,
+        buildList {
+            addAll(listOf("dotnet", "publish", "Cursorial.Designer.PreviewHost", "-c", "Release"))
+            if (repoRoot != null) add("-p:CursorialRepoRoot=$repoRoot")
+            addAll(listOf("-o", output.get().asFile.absolutePath))
+        }
     )
 }
 
