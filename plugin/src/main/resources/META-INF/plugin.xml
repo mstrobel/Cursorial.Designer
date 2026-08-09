@@ -33,6 +33,50 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <h3>0.2.0</h3>
+        <p>Matches Cursorial 0.5.0.</p>
+
+        <p><b>Preview</b></p>
+        <ul>
+            <li>Views with <code>x:Class</code> are live-sourced from the project, so the preview
+            renders what the code-behind actually builds.</li>
+            <li>The preview watches its XAML dependencies and reloads when any of them changes.</li>
+            <li>The language service restarts when the user assembly is rebuilt.</li>
+            <li>Pointer key modifiers are forwarded from the preview pane.</li>
+            <li>New <code>vt100</code> terminal profile &mdash; monochrome, no mouse.</li>
+            <li>Split proportions no longer sync across documents or orientations.</li>
+            <li>DataViews controls are available to previewed documents.</li>
+        </ul>
+
+        <p><b>Code insight</b></p>
+        <ul>
+            <li><code>{TemplateBinding}</code> completes and resolves the template target's members.</li>
+            <li>Property-element and <code>Setter</code> completion, including element-form-only scalars.</li>
+            <li>Binding paths re-scope through ancestor <code>DataContext</code> bindings.</li>
+            <li>Markup extensions complete in element form.</li>
+            <li><code>Style.RequiresCapabilities</code> completes as a flags-aware value list.</li>
+        </ul>
+
+        <p><b>Navigation and documentation</b></p>
+        <ul>
+            <li>Ctrl+B on a resource URI opens the referenced document.</li>
+            <li><code>x:Class</code> hover, navigation and highlighting.</li>
+            <li>Both halves of an <code>{x:Static}</code> path navigate and document.</li>
+            <li>Named-element navigation is scoped to the reference's template name scope.</li>
+        </ul>
+
+        <p><b>Inspector</b></p>
+        <ul>
+            <li><code>DesiredSize</code> and <code>Bounds</code> rows.</li>
+        </ul>
+
+        <p><b>Fixes</b></p>
+        <ul>
+            <li>Editor services are pinned against user-assembly provider hijacks.</li>
+            <li>Cleared the plugin verifier's compatibility and internal-API findings against
+            recent Rider builds.</li>
+        </ul>
+
         <h3>0.1.0</h3>
         <p>Initial release: live character-cell preview with theme/tier/capability switching,
         completion, live parse + build diagnostics, semantic highlighting, quick docs,
