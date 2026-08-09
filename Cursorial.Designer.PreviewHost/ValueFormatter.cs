@@ -2,7 +2,8 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 
 using Cursorial.Drawing.Media;
-using Cursorial.Output;
+using Cursorial.Media;
+using Cursorial.Rendering.Media;
 using Cursorial.UI;
 
 namespace Cursorial.Designer.PreviewHost;

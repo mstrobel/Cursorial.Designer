@@ -1,8 +1,10 @@
 using System.Text;
 
 using Cursorial.Designer.Protocol;
+using Cursorial.Media;
 using Cursorial.Output;
 using Cursorial.Rendering;
+using Cursorial.Text;
 
 namespace Cursorial.Designer.PreviewHost;
 
@@ -25,7 +27,7 @@ internal static class FrameSerializer
     public static FrameEvent Serialize(CellBuffer buffer, StyleQuantizer? quantizer = null, bool lightBase = false)
     {
         var styles = new List<StyleInfo>();
-        var styleIndices = new Dictionary<Style, int>();
+        var styleIndices = new Dictionary<CellStyle, int>();
         var lines = new List<IReadOnlyList<TextRun>>(buffer.Rows);
 
         for (var row = 0; row < buffer.Rows; row++)
@@ -165,7 +167,7 @@ internal static class FrameSerializer
     private static bool CursorsEqual(CursorInfo a, CursorInfo b)
         => a.Row == b.Row && a.Column == b.Column && a.Visible == b.Visible && a.Shape == b.Shape;
 
-    private static int GetStyleIndex(in Style style, StyleQuantizer? quantizer, List<StyleInfo> styles, Dictionary<Style, int> indices)
+    private static int GetStyleIndex(in CellStyle style, StyleQuantizer? quantizer, List<StyleInfo> styles, Dictionary<CellStyle, int> indices)
     {
         // Dedup on the raw style, quantize once per unique entry.
         if (indices.TryGetValue(style, out var existing))
@@ -177,7 +179,7 @@ internal static class FrameSerializer
         return index;
     }
 
-    internal static StyleInfo ToStyleInfo(Style style, bool lightBase = false)
+    internal static StyleInfo ToStyleInfo(CellStyle style, bool lightBase = false)
     {
         List<string>? attrs = null;
         void Add(TextAttributes flag, string name)

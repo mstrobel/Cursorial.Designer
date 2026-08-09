@@ -3,6 +3,7 @@ using System.Reflection;
 using Cursorial.Designer.Protocol;
 using Cursorial.Input;
 using Cursorial.Input.Events;
+using Cursorial.Media;
 using Cursorial.Output;
 using Cursorial.Rendering;
 using Cursorial.UI;
@@ -103,6 +104,14 @@ internal sealed class PreviewSession : IDisposable
         // still see every shipped control (and the suites' registered theme keys).
         XamlSchemaContext.Default.RegisterAssembly(typeof(Toolbar).Assembly);
         XamlSchemaContext.Default.RegisterAssembly(typeof(Cursorial.UI.Dialogs.MessageBox).Assembly);
+
+        try
+        {
+            IsEffectiveRenderBoundary = typeof(UIElement).GetProperty(
+                "IsEffectiveRenderBoundary",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        }
+        catch { /* ultimately inconsequential */}
     }
 
     /// <summary>The host's reflection metadata provider, captured before any user assembly loads.</summary>
@@ -110,6 +119,8 @@ internal sealed class PreviewSession : IDisposable
 
     /// <summary>The previewer's resource provider — also the per-load dependency recorder.</summary>
     private static readonly DesignerXamlResourceProvider DesignerResources = new();
+
+    private static readonly PropertyInfo? IsEffectiveRenderBoundary;
 
     public PreviewSession(Action<PreviewEvent> emit) => _emit = emit;
 
@@ -912,8 +923,11 @@ internal sealed class PreviewSession : IDisposable
 
         // Layout facts lead the grid: not UIProperties (no lanes, no provenance) but the two
         // numbers every layout question starts from.
-        items.Add(new PropertyEntry { Name = "DesiredSize", Value = ValueFormatter.Format(element.DesiredSize), ValueSource = "Layout" });
-        items.Add(new PropertyEntry { Name = "Bounds", Value = ValueFormatter.Format(element.Bounds), ValueSource = "Layout" });
+        items.Add(new PropertyEntry { Name = nameof(element.DesiredSize), Value = ValueFormatter.Format(element.DesiredSize), ValueSource = "Layout" });
+        items.Add(new PropertyEntry { Name = nameof(element.Bounds), Value = ValueFormatter.Format(element.Bounds), ValueSource = "Layout" });
+
+        if (IsEffectiveRenderBoundary?.GetValue(element) is {} irb)
+            items.Add(new PropertyEntry { Name = nameof(element.IsRenderBoundary), Value = ValueFormatter.Format(irb), ValueSource = "Composite" });
 
         var setProperties = element.GetSetProperties();
         foreach (var property in setProperties)
@@ -1036,7 +1050,12 @@ internal sealed class PreviewSession : IDisposable
         // Kind filter keeps the three passes disjoint by construction.
         if (command.IncludeDefaults == true)
         {
-            foreach (var property in UIProperties.ForType(element.GetType()))
+            var allProperties =
+                UIProperties.ForType(element.GetType())
+                            .Concat(UIProperties.AttachableOn(element.GetType()))
+                            .OrderBy(p => p.Name);
+
+            foreach (var property in allProperties)
             {
                 if (setProperties.Contains(property))
                     continue;
@@ -1072,7 +1091,9 @@ internal sealed class PreviewSession : IDisposable
             }
         }
 
-        var classes = string.Join(", ", element.Classes);
+        string classes = string.Join(", ",
+                                     element.Classes.Select(c => c.StartsWith('.') ? c : '.' + c)
+                                            .Concat(InteractionPseudoClasses.Names.Where(element.HasPseudoClass)));
         _emit(new PropertiesEvent
         {
             ReplyTo = command.Id,
