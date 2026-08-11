@@ -33,6 +33,18 @@ internal static class CoreLoader
     {
         var bundleDirectory = AppContext.BaseDirectory;
         var context = new PreviewLoadContext(bundleDirectory);
+
+        // The reverse bridge. Name-based resolution that STARTS in a default-context frame —
+        // TypeDescriptor reading a [TypeConverter] attribute's assembly-qualified string is the
+        // canonical case — never consults this context's Load, and the launcher's TPA
+        // deliberately lacks the framework, so without help the lookup FAILS and the caller
+        // degrades silently (a gesture string reaches SetValue unconverted). Handing back this
+        // context's copy UNIFIES identity instead of duplicating it; Protocol and non-Cursorial
+        // names are declined so nothing new leaks into the session context. One session per
+        // process (the plugin spawns a host per preview tab), so the subscription lives for the
+        // process lifetime by design.
+        AssemblyLoadContext.Default.Resolving += (_, name) => context.TryLoadCursorial(name);
+
         var core = context.LoadFromAssemblyPath(Path.Combine(bundleDirectory, CoreAssemblyName + ".dll"));
         var entryType = core.GetType(SessionCoreTypeName, throwOnError: true)!;
         return (ISessionCore)Activator.CreateInstance(entryType, emit)!;
@@ -60,15 +72,27 @@ internal sealed class PreviewLoadContext : AssemblyLoadContext
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
+        // Everything Cursorial-flavored — the core and the framework — belongs to this context;
+        // BCL and shared-framework assemblies fall through to the default context.
+        return TryLoadCursorial(assemblyName);
+    }
+
+    /// <summary>
+    /// The one resolution rule, shared by <see cref="Load"/> (requests arriving IN this context)
+    /// and the launcher's <see cref="AssemblyLoadContext.Default"/>.Resolving bridge (name-based
+    /// requests arriving in a default-context frame, which the launcher's framework-free TPA
+    /// cannot satisfy): a <c>Cursorial.*</c> name loads from the bundle into THIS context —
+    /// except Protocol, whose types ARE the boundary and must stay where the launcher binds
+    /// them, in the default context, which is the mechanism that unifies them on both sides.
+    /// Returns null rather than throwing for anything it does not own.
+    /// </summary>
+    internal Assembly? TryLoadCursorial(AssemblyName assemblyName)
+    {
         var name = assemblyName.Name;
 
-        // Protocol types ARE the boundary: the commands and events crossing between the launcher
-        // and the core must agree on identity, and falling through to the default context (where
-        // the launcher itself binds Protocol) is the mechanism that unifies them.
         if (name is null || name == ProtocolAssemblyName)
             return null;
 
-        // Everything Cursorial-flavored — the core and the framework — belongs to this context.
         if (name.StartsWith("Cursorial.", StringComparison.Ordinal))
         {
             var path = Path.Combine(_bundleDirectory, name + ".dll");
@@ -76,7 +100,6 @@ internal sealed class PreviewLoadContext : AssemblyLoadContext
                 return LoadFromAssemblyPath(path);
         }
 
-        // BCL and shared-framework assemblies: default context.
         return null;
     }
 
