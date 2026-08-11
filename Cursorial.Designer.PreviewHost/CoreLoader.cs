@@ -9,9 +9,11 @@ namespace Cursorial.Designer.PreviewHost;
 /// Loads the framework-bound core (<c>Cursorial.Designer.PreviewHost.Core</c>) into its own
 /// non-collectible <see cref="AssemblyLoadContext"/> and hands back the Protocol-typed session
 /// seam. The split exists so that exactly ONE copy of every <c>Cursorial.*</c> assembly exists
-/// per session: the core and the framework (and, in later slices, the user's assemblies) all
-/// resolve inside that one context, while the Protocol types the launcher exchanges with the
-/// core stay in the default context — reference-unified on both sides of the boundary.
+/// per session: the core, the framework, and the user's assemblies all resolve inside that one
+/// context — sourced per-assembly from the user's build output, a framework checkout's own
+/// outputs, or the bundle, per the spawn-time <see cref="FrameworkResolution"/> — while the
+/// Protocol types the launcher exchanges with the core stay in the default context,
+/// reference-unified on both sides of the boundary.
 /// </summary>
 internal static class CoreLoader
 {
@@ -25,14 +27,15 @@ internal static class CoreLoader
     private const string SessionCoreTypeName = "Cursorial.Designer.PreviewHost.SessionCore";
 
     /// <summary>
-    /// Builds the session's load context over the bundled directory (the launcher's own — this
-    /// slice is bundled-only), loads the core into it, and activates the session seam. Called on
-    /// the command-loop thread, which thereby stays the UI thread exactly as before the split.
+    /// Builds the session's load context from <paramref name="resolution"/> (defaulting to a
+    /// bundled-only resolution over the launcher's own directory), loads the core into it, and
+    /// activates the session seam. Called on the command-loop thread, which thereby stays the
+    /// UI thread exactly as before the split.
     /// </summary>
-    public static ISessionCore CreateSession(Action<PreviewEvent> emit)
+    public static ISessionCore CreateSession(Action<PreviewEvent> emit, FrameworkResolution? resolution = null)
     {
-        var bundleDirectory = AppContext.BaseDirectory;
-        var context = new PreviewLoadContext(bundleDirectory);
+        resolution ??= FrameworkResolution.Resolve(AppContext.BaseDirectory);
+        var context = new PreviewLoadContext(resolution, emit);
 
         // The reverse bridge. Name-based resolution that STARTS in a default-context frame —
         // TypeDescriptor reading a [TypeConverter] attribute's assembly-qualified string is the
@@ -45,7 +48,10 @@ internal static class CoreLoader
         // process lifetime by design.
         AssemblyLoadContext.Default.Resolving += (_, name) => context.TryLoadCursorial(name);
 
-        var core = context.LoadFromAssemblyPath(Path.Combine(bundleDirectory, CoreAssemblyName + ".dll"));
+        // The core is designer-owned and never appears in user output: it always loads from the
+        // bundle, into the session context — its Cursorial.* references then resolve through the
+        // context's per-assembly preference.
+        var core = context.LoadFromAssemblyPath(Path.Combine(resolution.BundleDirectory, CoreAssemblyName + ".dll"));
         var entryType = core.GetType(SessionCoreTypeName, throwOnError: true)!;
         return (ISessionCore)Activator.CreateInstance(entryType, emit)!;
     }
@@ -54,26 +60,30 @@ internal static class CoreLoader
 /// <summary>
 /// The load context that owns everything framework-bound. Resolution policy: Protocol falls
 /// through to the default context (the type-identity bridge for the seam), <c>Cursorial.*</c>
-/// loads from the bundled directory into THIS context, and BCL/shared-framework names fall
+/// loads into THIS context — preferring the user's build output per-assembly, then a framework
+/// checkout's own outputs, then the bundled copies — and BCL/shared-framework names fall
 /// through to the default context so runtime types are never duplicated.
 /// </summary>
 internal sealed class PreviewLoadContext : AssemblyLoadContext
 {
     private static readonly string ProtocolAssemblyName = typeof(PreviewProtocol).Assembly.GetName().Name!;
 
-    private readonly string _bundleDirectory;
+    private readonly FrameworkResolution _resolution;
+    private readonly Action<PreviewEvent>? _emit;
 
-    public PreviewLoadContext(string bundleDirectory)
+    public PreviewLoadContext(FrameworkResolution resolution, Action<PreviewEvent>? emit = null)
         : base(name: "cursorial-preview", isCollectible: false)
     {
-        _bundleDirectory = bundleDirectory;
-        Resolving += ResolveBundledDependency;
+        _resolution = resolution;
+        _emit = emit;
+        Resolving += ResolveFallbackDependency;
     }
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
-        // Everything Cursorial-flavored — the core and the framework — belongs to this context;
-        // BCL and shared-framework assemblies fall through to the default context.
+        // Everything Cursorial-flavored — the core, the framework, the user's assemblies —
+        // belongs to this context; BCL and shared-framework assemblies fall through to the
+        // default context.
         return TryLoadCursorial(assemblyName);
     }
 
@@ -81,10 +91,11 @@ internal sealed class PreviewLoadContext : AssemblyLoadContext
     /// The one resolution rule, shared by <see cref="Load"/> (requests arriving IN this context)
     /// and the launcher's <see cref="AssemblyLoadContext.Default"/>.Resolving bridge (name-based
     /// requests arriving in a default-context frame, which the launcher's framework-free TPA
-    /// cannot satisfy): a <c>Cursorial.*</c> name loads from the bundle into THIS context —
-    /// except Protocol, whose types ARE the boundary and must stay where the launcher binds
-    /// them, in the default context, which is the mechanism that unifies them on both sides.
-    /// Returns null rather than throwing for anything it does not own.
+    /// cannot satisfy): a <c>Cursorial.*</c> name loads into THIS context from the first source
+    /// that has it — user output, framework checkout output, bundle — except Protocol, whose
+    /// types ARE the boundary and must stay where the launcher binds them, in the default
+    /// context, which is the mechanism that unifies them on both sides. Returns null rather
+    /// than throwing for anything it does not own.
     /// </summary>
     internal Assembly? TryLoadCursorial(AssemblyName assemblyName)
     {
@@ -93,32 +104,65 @@ internal sealed class PreviewLoadContext : AssemblyLoadContext
         if (name is null || name == ProtocolAssemblyName)
             return null;
 
-        if (name.StartsWith("Cursorial.", StringComparison.Ordinal))
+        if (!name.StartsWith("Cursorial.", StringComparison.Ordinal))
+            return null;
+
+        if (_resolution.UserDirectory is { } userDirectory)
         {
-            var path = Path.Combine(_bundleDirectory, name + ".dll");
-            if (File.Exists(path))
-                return LoadFromAssemblyPath(path);
+            var userPath = Path.Combine(userDirectory, name + ".dll");
+            if (File.Exists(userPath))
+                return LoadResolved(name, userPath, "user output");
         }
+
+        if (_resolution.Checkout?.ProbeFor(name) is { } checkoutPath)
+            return LoadResolved(name, checkoutPath, "framework checkout output");
+
+        var bundledPath = Path.Combine(_resolution.BundleDirectory, name + ".dll");
+        if (File.Exists(bundledPath))
+            return LoadFromAssemblyPath(bundledPath); // the default source; not narrated
 
         return null;
     }
 
     /// <summary>
     /// Reached only after both <see cref="Load"/> and the default-context fallback declined:
-    /// third-party dependencies that ship in the bundle but are outside the launcher's own
-    /// dependency closure (e.g. <c>Microsoft.Extensions.TimeProvider.Testing</c>, the headless
-    /// host's time source). Shared-framework assemblies never get this far — the default context
-    /// supplies them first — so nothing runtime-owned is ever duplicated into this context.
+    /// third-party dependencies outside the launcher's own dependency closure (e.g.
+    /// <c>Microsoft.Extensions.TimeProvider.Testing</c>, the headless host's time source).
+    /// Same user-first, bundle-fallback rule, WITHOUT the checkout probe — framework
+    /// class-library outputs don't materialize their NuGet closure, so probing them for
+    /// third-party names would never hit. Shared-framework assemblies never get this far —
+    /// the default context supplies them first — so nothing runtime-owned is ever duplicated
+    /// into this context.
     /// </summary>
-    private Assembly? ResolveBundledDependency(AssemblyLoadContext context, AssemblyName assemblyName)
+    private Assembly? ResolveFallbackDependency(AssemblyLoadContext context, AssemblyName assemblyName)
     {
-        if (assemblyName.Name is { } name)
+        if (assemblyName.Name is not { } name)
+            return null;
+
+        if (_resolution.UserDirectory is { } userDirectory)
         {
-            var path = Path.Combine(_bundleDirectory, name + ".dll");
-            if (File.Exists(path))
-                return LoadFromAssemblyPath(path);
+            var userPath = Path.Combine(userDirectory, name + ".dll");
+            if (File.Exists(userPath))
+                return LoadResolved(name, userPath, "user output");
         }
 
+        var bundledPath = Path.Combine(_resolution.BundleDirectory, name + ".dll");
+        if (File.Exists(bundledPath))
+            return LoadFromAssemblyPath(bundledPath);
+
         return null;
+    }
+
+    /// <summary>
+    /// Loads a non-bundle resolution and narrates it (debug) — the ready report names where the
+    /// FRAMEWORK comes from; these lines name everyone else's origin, so a mixed-vintage
+    /// diagnosis never needs a debugger. Emission is thread-safe (the launcher's writer locks)
+    /// and resolution-safe (Protocol and its serializer live in the default context, fully
+    /// loaded before this context exists).
+    /// </summary>
+    private Assembly LoadResolved(string name, string path, string origin)
+    {
+        _emit?.Invoke(new LogEvent { Level = "debug", Message = $"Resolved {name} from {origin}: {path}" });
+        return LoadFromAssemblyPath(path);
     }
 }

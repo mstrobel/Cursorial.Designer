@@ -33,7 +33,23 @@ internal static class StdioServer
             }
         }
 
-        Emit(new ReadyEvent { ProtocolVersion = PreviewProtocol.Version, Pid = Environment.ProcessId });
+        // Where the framework comes from is decided ONCE, up front, from metadata alone — the
+        // ready payload reports it so the IDE can narrate degraded states without parsing logs.
+        // The user's build-output directory arrives as a spawn-time argument (--user-dir <path>):
+        // the plugin spawns one host per preview tab and restarts it when the output changes, so
+        // the directory never needs to change mid-process.
+        var resolution = FrameworkResolution.Resolve(AppContext.BaseDirectory, ParseUserDirectory(args));
+
+        Emit(new ReadyEvent
+        {
+            ProtocolVersion = PreviewProtocol.Version,
+            Pid = Environment.ProcessId,
+            FrameworkVersion = resolution.FrameworkVersion,
+            FrameworkSource = resolution.FrameworkSource,
+            FrameworkPath = resolution.FrameworkDirectory,
+            FallbackReason = resolution.FallbackReason,
+            UserDirMissing = resolution.UserDirMissing ? true : null, // omitted from the wire when false
+        });
 
         var commands = new System.Collections.Concurrent.BlockingCollection<PreviewCommand>(boundedCapacity: 256);
 
@@ -80,7 +96,7 @@ internal static class StdioServer
         // The core (and with it the entire framework) loads HERE, on the loop thread, into the
         // load context CoreLoader builds — so the thread that executes commands is the one the
         // headless host binds to, exactly as before the launcher/core split.
-        using var session = CoreLoader.CreateSession(Emit);
+        using var session = CoreLoader.CreateSession(Emit, resolution);
 
         foreach (var command in commands.GetConsumingEnumerable())
         {
@@ -108,5 +124,17 @@ internal static class StdioServer
             commands.Dispose();
 
         return 0;
+    }
+
+    /// <summary>The value following <c>--user-dir</c>, or null. Unknown arguments are ignored.</summary>
+    private static string? ParseUserDirectory(string[] args)
+    {
+        for (var i = 0; i + 1 < args.Length; i++)
+        {
+            if (args[i] == "--user-dir")
+                return args[i + 1];
+        }
+
+        return null;
     }
 }

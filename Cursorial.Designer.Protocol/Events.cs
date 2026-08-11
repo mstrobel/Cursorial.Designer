@@ -33,6 +33,39 @@ public sealed class ReadyEvent : PreviewEvent
     public required int ProtocolVersion { get; init; }
 
     public required int Pid { get; init; }
+
+    /// <summary>
+    /// The version of the <c>Cursorial.Core</c> the session resolves (e.g. <c>0.5.0.0</c>),
+    /// read from assembly metadata before anything loads. Additive; absent from older hosts
+    /// and when no framework is present at all.
+    /// </summary>
+    public string? FrameworkVersion { get; init; }
+
+    /// <summary>
+    /// Where the framework comes from: <c>user</c> when the session prefers the user project's
+    /// build output, <c>bundled</c> when it runs on the designer's own copies. Additive.
+    /// </summary>
+    public string? FrameworkSource { get; init; }
+
+    /// <summary>The directory <c>Cursorial.Core</c> resolves from (no trailing separator). Additive.</summary>
+    public string? FrameworkPath { get; init; }
+
+    /// <summary>
+    /// Human-readable reason when the user's framework was present but NOT used (e.g. older
+    /// than the bundled floor). Null on the normal paths — its presence is the IDE's cue to
+    /// narrate the fallback. Additive.
+    /// </summary>
+    public string? FallbackReason { get; init; }
+
+    /// <summary>
+    /// True when the host was GIVEN a user directory but found no assemblies there (directory
+    /// absent, or empty of dlls) — the project was never built or was cleaned, and the preview
+    /// runs entirely on the designer's bundled framework. Deliberately a separate flag from
+    /// <see cref="FallbackReason"/>: the IDE renders this condition louder (a dismissible cue —
+    /// user types will silently fail to resolve until a build exists) than the quiet
+    /// wrong-vintage note. Omitted when false. Additive.
+    /// </summary>
+    public bool? UserDirMissing { get; init; }
 }
 
 /// <summary>

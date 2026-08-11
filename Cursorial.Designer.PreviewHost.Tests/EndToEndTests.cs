@@ -47,6 +47,17 @@ public class EndToEndTests
             var ready = Assert.IsType<ReadyEvent>(await NextEvent());
             Assert.Equal(PreviewProtocol.Version, ready.ProtocolVersion);
 
+            // No --user-dir: the framework report says "bundled", names the launcher's own
+            // directory, and carries the bundled Cursorial.Core's metadata version (this test
+            // directory holds the same copy the host launches from, so compare against it).
+            Assert.Equal("bundled", ready.FrameworkSource);
+            Assert.Equal(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory), ready.FrameworkPath);
+            var bundledCoreVersion = System.Reflection.AssemblyName
+                .GetAssemblyName(Path.Combine(AppContext.BaseDirectory, "Cursorial.Core.dll")).Version?.ToString();
+            Assert.Equal(bundledCoreVersion, ready.FrameworkVersion);
+            Assert.NotNull(ready.FrameworkVersion);
+            Assert.Null(ready.FallbackReason);
+
             await Send(new InitializeCommand { ProtocolVersion = 1, Columns = 40, Rows = 10 });
             var initialFrame = Assert.IsType<FrameEvent>(await NextEvent());
             Assert.Equal(40, initialFrame.Columns);
