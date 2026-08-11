@@ -21,11 +21,14 @@
     <ItemGroup>
         <ProjectReference Include="..\Cursorial.Designer.Protocol\Cursorial.Designer.Protocol.csproj" />
         <ProjectReference Include="..\Cursorial.Designer.PreviewHost\Cursorial.Designer.PreviewHost.csproj" />
+        <ProjectReference Include="..\Cursorial.Designer.PreviewHost.Core\Cursorial.Designer.PreviewHost.Core.csproj" />
     </ItemGroup>
 
     <!--
-        PreviewSession and friends are internal; the tests drive them in-process (the stdio pipe
-        is exercised separately by the end-to-end test, which spawns the real host executable).
+        PreviewSession and friends are internal to the CORE; the tests drive them in-process, in
+        the default load context (the stdio pipe and the launcher's load-context construction are
+        exercised separately: the end-to-end test spawns the real launcher executable, and the
+        ALC boundary test builds the launcher's context in-process).
     -->
 
 </Project>

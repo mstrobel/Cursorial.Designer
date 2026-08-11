@@ -77,7 +77,10 @@ internal static class StdioServer
         };
         reader.Start();
 
-        using var session = new PreviewSession(Emit);
+        // The core (and with it the entire framework) loads HERE, on the loop thread, into the
+        // load context CoreLoader builds — so the thread that executes commands is the one the
+        // headless host binds to, exactly as before the launcher/core split.
+        using var session = CoreLoader.CreateSession(Emit);
 
         foreach (var command in commands.GetConsumingEnumerable())
         {

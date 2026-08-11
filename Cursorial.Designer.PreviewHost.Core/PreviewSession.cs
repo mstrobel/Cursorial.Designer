@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.Loader;
 
 using Cursorial.Designer.Protocol;
 using Cursorial.Input;
@@ -565,7 +566,15 @@ internal sealed class PreviewSession : IDisposable
 
             try
             {
-                XamlSchemaContext.Default.RegisterAssembly(Assembly.LoadFrom(path));
+                // Context-local load, NOT Assembly.LoadFrom: LoadFrom always binds into the
+                // default context, which would put the user's assembly (and any Cursorial.* it
+                // drags in) on the wrong side of the launcher's load-context boundary —
+                // re-splitting the framework the split exists to unify. Loading through this
+                // assembly's own context keeps every identity singular. (In the in-process test
+                // harness that context IS the default context, so behavior there is unchanged.)
+                var context = AssemblyLoadContext.GetLoadContext(typeof(PreviewSession).Assembly)
+                    ?? AssemblyLoadContext.Default;
+                XamlSchemaContext.Default.RegisterAssembly(context.LoadFromAssemblyPath(Path.GetFullPath(path)));
             }
             catch (Exception ex)
             {
