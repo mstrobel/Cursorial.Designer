@@ -229,6 +229,23 @@ sealed interface PreviewerEvent
 data class ReadyEvent(
     val protocolVersion: Int,
     val pid: Long,
+    /** The Cursorial.Core version the session resolves (e.g. "0.5.0.0"); null from older hosts. */
+    val frameworkVersion: String? = null,
+    /** "user" (the project's build output) or "bundled" (the designer's copies); null = unreported, NOT bundled. */
+    val frameworkSource: String? = null,
+    /** Directory Cursorial.Core resolves from (no trailing separator). */
+    val frameworkPath: String? = null,
+    /**
+     * Human-readable reason when the project's framework was present but NOT used (e.g. older
+     * than the designer's floor). Non-null = the QUIET status-strip note condition.
+     */
+    val fallbackReason: String? = null,
+    /**
+     * True when the host was given a user directory but found no assemblies there (project
+     * never built, or cleaned). The VISIBLE-BUT-DISMISSIBLE cue condition — user types will
+     * silently fail to resolve until a build exists. Disjoint from [fallbackReason].
+     */
+    val userDirMissing: Boolean? = null,
 ) : PreviewerEvent
 
 /**

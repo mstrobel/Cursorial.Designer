@@ -23,12 +23,18 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Owns one out-of-process preview host: `dotnet <hostDll>`.
+ * Owns one out-of-process preview host: `dotnet <hostDll> [--user-dir <path>]`.
  *
  * The host speaks newline-delimited JSON: commands are written to its stdin, events are
  * read from its stdout, and stderr is surfaced as host log output. If the process dies
  * unexpectedly it is restarted with a bounded backoff; subscribers get [Listener.onStarted]
  * again and are expected to re-send `initialize`/`loadXaml`.
+ *
+ * [userDirectoryProvider] supplies the project's build-output directory for the host's
+ * `--user-dir` spawn argument. It is re-evaluated on EVERY (re)start — the host's framework
+ * resolution is fixed per process by design (restart-on-rebuild, not hot reload), so a restart
+ * after the first build, or after the output moved, picks the fresh directory up. Null (or a
+ * null result) spawns without the argument: bundled-only, exactly the pre-user-dir behavior.
  *
  * Dispose this object (it is a [Disposable]) to shut the host down; register it with the
  * owning editor so the process dies with the editor.
@@ -37,6 +43,7 @@ class PreviewHostProcess(
     private val hostDllPath: Path,
     private val workingDirectory: Path? = null,
     private val dotnetExecutable: String = "dotnet",
+    private val userDirectoryProvider: (() -> Path?)? = null,
 ) : Disposable {
 
     interface Listener {
@@ -160,7 +167,13 @@ class PreviewHostProcess(
     // ------------------------------------------------------------------
 
     private fun startLocked() {
-        val commandLine = GeneralCommandLine(dotnetExecutable, hostDllPath.toAbsolutePath().toString())
+        val arguments = mutableListOf(hostDllPath.toAbsolutePath().toString())
+        userDirectoryProvider?.invoke()?.let { userDirectory ->
+            arguments += "--user-dir"
+            arguments += userDirectory.toAbsolutePath().toString()
+        }
+
+        val commandLine = GeneralCommandLine(listOf(dotnetExecutable) + arguments)
             .withCharset(StandardCharsets.UTF_8)
             .apply {
                 workingDirectory?.let { withWorkDirectory(it.toFile()) }

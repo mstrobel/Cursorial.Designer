@@ -181,6 +181,13 @@ class CursorialLanguageService(private val project: Project) : Disposable {
 
         hostDllStamp = stamp
         recordUserAssemblyStamps(userAssemblies)
+        // Deliberately spawned WITHOUT --user-dir (ruling G3): this host is shared across every
+        // XAML file in the project, so its framework must not pin to whichever project's build
+        // output happened to trigger the first request — its diagnostics semantics stay on the
+        // plugin's bundled vintage. User assemblies still ride per-command (analyze/complete/
+        // hover/definition payloads); only the FRAMEWORK stays bundled. If per-project framework
+        // semantics are ever needed here, the service becomes per-output-directory (one host
+        // per user dir), not a --user-dir on this shared one.
         val fresh = process ?: PreviewHostProcess(hostDll).also {
             it.addListener(listener)
             Disposer.register(this, it)

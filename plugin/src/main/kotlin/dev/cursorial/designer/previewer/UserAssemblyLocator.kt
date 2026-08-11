@@ -12,10 +12,22 @@ import java.io.File
  * the same output directory (SDK-style builds copy references), and framework assemblies bind to
  * the ones the host already has loaded.
  *
- * TODO: replace with Rider's workspace model (real target path + configuration) and restart the
- *  host on project rebuild — the heuristic requires a prior build and can pick a stale dll.
+ * TODO: replace with Rider's workspace model (real target path + configuration, e.g.
+ *  com.jetbrains.rider.projectView.workspace) and Rider's build-finished events instead of the
+ *  2s stamp poll — the heuristic requires a prior build and can pick a stale dll. The plugin is
+ *  deliberately frontend-only today (docs/architecture.md), so no backend project-model API is
+ *  available without taking that dependency; both [locate] and [locateOutputDirectory] swap
+ *  implementations behind their existing shapes when it lands.
  */
 object UserAssemblyLocator {
+
+    /**
+     * The build-output DIRECTORY containing the located assembly — the value of the preview
+     * host's `--user-dir` spawn argument. Null when no built output exists (the host is then
+     * spawned without the argument: bundled-only, plus the not-built cue).
+     */
+    fun locateOutputDirectory(xamlFile: VirtualFile): File? =
+        locate(xamlFile).assemblies.firstOrNull()?.let { File(it).parentFile }
 
     /** Returns the discovery result: assembly paths to load, or a human-readable problem. */
     fun locate(xamlFile: VirtualFile): Result {
