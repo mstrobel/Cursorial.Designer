@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Loader;
 
@@ -123,7 +124,19 @@ internal sealed class PreviewSession : IDisposable
 
     private static readonly PropertyInfo? IsEffectiveRenderBoundary;
 
-    public PreviewSession(Action<PreviewEvent> emit) => _emit = emit;
+    /// <summary>
+    /// TEST HOOK: keeps <c>AnimationScheduler.AnimationsEnabled</c> untouched at initialize, so
+    /// the regression facts for the reload-while-animating starvation can exercise the settle
+    /// path with real motion. Production sessions always run with the design-surface posture
+    /// (animations disabled — see <see cref="Initialize"/>).
+    /// </summary>
+    private readonly bool _keepAnimationsEnabled;
+
+    public PreviewSession(Action<PreviewEvent> emit, bool keepAnimationsEnabled = false)
+    {
+        _emit = emit;
+        _keepAnimationsEnabled = keepAnimationsEnabled;
+    }
 
     private sealed class DesignerXamlResourceProvider : Cursorial.UI.Xaml.IXamlResourceProvider
     {
@@ -329,6 +342,17 @@ internal sealed class PreviewSession : IDisposable
             args.Handled = true;
             _frameException = args.Exception;
         };
+
+        // Design-surface posture (the Blend precedent: the art board pauses animations): the
+        // previewer renders animated content SNAPPED, not in motion. With motion disabled,
+        // Begin collapses per the framework's §9.7/AD15 contract — finite animations snap to
+        // their end state, perpetual ones (a marquee PhaseShiftedBrush, an indeterminate
+        // progress bar) retract to their base value — so the application actually reaches idle
+        // and a reload's settle exits on its fast path instead of burning the full frame budget
+        // while the single-threaded command loop starves the wire (the reload-while-animating
+        // hang). UITimer-driven content is unaffected (timers ignore the switch, §9.7).
+        if (!_keepAnimationsEnabled)
+            AnimationScheduler.Current.AnimationsEnabled = false;
 
         // The wire carries what the profiled terminal could actually show, not the pre-quantization
         // intent — an ansi16 preview must look like ansi16.
@@ -1191,6 +1215,17 @@ internal sealed class PreviewSession : IDisposable
         EmitFrame();
     }
 
+    /// <summary>
+    /// Wall-clock bound for <see cref="Settle"/>'s virtual-time fast-forward. The command loop
+    /// IS the UI thread, so every frame spent settling starves the wire; content that has not
+    /// reached idle within this budget is emitted as-is (mid-motion) and advanceTime steps it
+    /// from there. Cheap content is unaffected — its 150 iterations complete well inside the
+    /// budget — while a perpetual animation, which never idles at ANY virtual time, stops
+    /// costing ~155 rendered frames per reload (captured live at 300×100: 6+ s of
+    /// CompositeCell/EmitDiff inside this loop before the bound existed).
+    /// </summary>
+    private const long SettleBudgetMilliseconds = 250;
+
     private static void Settle(UIHeadlessHost host)
     {
         // Fast path: most content goes idle within a few frames.
@@ -1198,9 +1233,11 @@ internal sealed class PreviewSession : IDisposable
             return;
 
         // Something is waiting on the frozen clock — a tooltip/repeat timer, a theme transition.
-        // Advance virtual time in frame-interval steps (bounded at ~5 s virtual) so the preview
-        // shows the settled end state instead of freezing at t=0 while burning frame passes.
-        for (var i = 0; i < 150; i++)
+        // Advance virtual time in frame-interval steps (bounded at ~5 s virtual, AND by the
+        // wall-clock budget) so the preview shows the settled end state instead of freezing at
+        // t=0 while burning frame passes.
+        var budget = Stopwatch.StartNew();
+        for (var i = 0; i < 150 && budget.ElapsedMilliseconds < SettleBudgetMilliseconds; i++)
         {
             host.AdvanceTime(host.Options.FrameInterval);
             if (host.RunUntilIdle(maxFrames: 5))

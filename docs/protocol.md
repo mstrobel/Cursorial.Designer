@@ -33,7 +33,9 @@ the session survives errors and keeps rendering the previous content.
                                            // down/up are real transitions — holding a key holds
                                            // pressed state; repeated down while held = key repeat
 {"type":"text","text":"abc"}
-{"type":"advanceTime","milliseconds":100}  // drives the frozen clock (animations)
+{"type":"advanceTime","milliseconds":100}  // drives the frozen clock (timers; property animations
+                                           // render SNAPPED — the session disables the animation
+                                           // scheduler at initialize, the design-surface posture)
 {"type":"hitTest","id":7,"column":5,"row":2}
 {"type":"getChildren","id":9,"elementId":3}   // descend below a hit-test anchor / explore siblings
 {"type":"describeElement","id":12,"elementId":3}  // re-answers hitTestResult with FRESH bounds
