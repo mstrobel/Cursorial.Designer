@@ -492,9 +492,14 @@ public class PreviewSessionTests : IDisposable
         _session.Execute(new GetPropertiesCommand { Id = 13, ElementId = id, IncludeDefaults = true });
         var withDefaults = Assert.IsType<PropertiesEvent>(_events.Last(e => e is PropertiesEvent));
         Assert.Contains(withDefaults.Items, p => p.ValueSource == "Default");
-        // The set/inherited rows still lead, and nothing appears twice.
+        // The set/inherited rows still lead, and nothing appears twice — not the attached-and-
+        // AddOwner'd text properties (in both ForType and AttachableOn), and not the composite
+        // render-boundary row, which reports under its own name. Grouping (not a count diff)
+        // so a regression names the offending rows instead of two drifting totals.
         Assert.Contains(withDefaults.Items, p => p.Name == "Text" && p.ValueSource == "Local");
-        Assert.Equal(withDefaults.Items.Count, withDefaults.Items.Select(p => $"{p.DeclaringType}.{p.Name}").Distinct().Count());
+        Assert.Empty(withDefaults.Items.GroupBy(p => (p.DeclaringType, p.Name))
+                                       .Where(g => g.Count() > 1)
+                                       .Select(g => $"{g.Key.DeclaringType}.{g.Key.Name} x{g.Count()}"));
 
         // A declared member no theme touches sits in the default lane, unqualified. (The
         // AddOwner-surfacing that motivated this sweep — TextBlock.Foreground — is pinned in

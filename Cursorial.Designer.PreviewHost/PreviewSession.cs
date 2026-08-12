@@ -926,8 +926,11 @@ internal sealed class PreviewSession : IDisposable
         items.Add(new PropertyEntry { Name = nameof(element.DesiredSize), Value = ValueFormatter.Format(element.DesiredSize), ValueSource = "Layout" });
         items.Add(new PropertyEntry { Name = nameof(element.Bounds), Value = ValueFormatter.Format(element.Bounds), ValueSource = "Layout" });
 
+        // The row is named for the internal property it reads (reflection above — no nameof for
+        // internals). Borrowing the declared property's name collided with IsRenderBoundary's own
+        // row in whatever lane it occupies; the composite answer is a separate fact.
         if (IsEffectiveRenderBoundary?.GetValue(element) is {} irb)
-            items.Add(new PropertyEntry { Name = nameof(element.IsRenderBoundary), Value = ValueFormatter.Format(irb), ValueSource = "Composite" });
+            items.Add(new PropertyEntry { Name = "IsEffectiveRenderBoundary", Value = ValueFormatter.Format(irb), ValueSource = "Composite" });
 
         var setProperties = element.GetSetProperties();
         foreach (var property in setProperties)
@@ -1050,9 +1053,13 @@ internal sealed class PreviewSession : IDisposable
         // Kind filter keeps the three passes disjoint by construction.
         if (command.IncludeDefaults == true)
         {
+            // Distinct by identity: an attached property AddOwner'd onto the element's type
+            // (TextBlock.Foreground et al.) sits in BOTH sets as the same registration —
+            // AddOwner returns the same instance.
             var allProperties =
                 UIProperties.ForType(element.GetType())
                             .Concat(UIProperties.AttachableOn(element.GetType()))
+                            .Distinct()
                             .OrderBy(p => p.Name);
 
             foreach (var property in allProperties)
