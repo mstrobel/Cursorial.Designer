@@ -782,7 +782,13 @@ internal static partial class EditorServices
                 var ownerClr = namespaces.TryGetValue(ownerPrefix, out var ownerUri)
                     ? SafeResolve(provider, ownerUri, member.OwnerName)?.ClrType.UnderlyingSystemType
                     : null;
-                var isParent = parentClr is not null && ownerClr is not null && ownerClr.IsAssignableFrom(parentClr);
+                // Parent-context lift is for CHILD-POSITIONING properties only (Grid.Row inside a Grid,
+                // DockPanel.Dock inside a DockPanel). An attached SERVICE on a broad host — NameScope /
+                // TemplateNameScope, owner UIElement — is assignable from every parent, so without the
+                // TargetsChildElements gate it pinned to the top band on every element. The marker keeps the
+                // lift for the containers that mean it (including non-Panel ones like Ribbon / Toolbar).
+                var isParent = member.TargetsChildElements
+                    && parentClr is not null && ownerClr is not null && ownerClr.IsAssignableFrom(parentClr);
 
                 items.Add(new CompletionItemInfo
                 {

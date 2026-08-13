@@ -453,6 +453,22 @@ public class EditorServiceTests : IDisposable
         Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Kind: "attached", Detail: "attached", ParentContext: true });
     }
 
+    [Fact] // Parent-context lift is CHILD-POSITIONING only (TargetsChildElements): DockPanel.Dock inside a
+    // DockPanel lifts, but an attached SERVICE — UIElement.NameScope, attachable on every element — must NOT.
+    // Before the marker gate it was assignable from every parent, so it pinned to the top band everywhere.
+    public void Complete_does_not_lift_broad_attached_services_to_parent_context()
+    {
+        var xaml = $"<DockPanel {Xmlns}>\n    <Button Do\n</DockPanel>";
+        _session.Execute(new CompleteCommand { Id = 52, Xaml = xaml, Line = 2, Column = 15 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        // Child-positioning: still lifted.
+        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", ParentContext: true });
+        // Broad attached service: offered, but NOT parent-context (falls to the alphabetical body).
+        Assert.Contains(completions.Items, i => i.Text == "UIElement.NameScope");
+        Assert.DoesNotContain(completions.Items, i => i.Text == "UIElement.NameScope" && i.ParentContext == true);
+    }
+
     [Fact] // BROADEN via the IXamlAttachablePropertyProvider seam: attached properties of ALL owners
     // (not just the parent) are offered for the element's own type — Grid.Column on a child of a
     // StackPanel, even though the parent is not a Grid — with the "attached" kind and NOT tagged
