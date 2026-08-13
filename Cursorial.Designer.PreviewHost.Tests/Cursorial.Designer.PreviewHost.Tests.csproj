@@ -21,11 +21,31 @@
     <ItemGroup>
         <ProjectReference Include="..\Cursorial.Designer.Protocol\Cursorial.Designer.Protocol.csproj" />
         <ProjectReference Include="..\Cursorial.Designer.PreviewHost\Cursorial.Designer.PreviewHost.csproj" />
+        <ProjectReference Include="..\Cursorial.Designer.PreviewHost.Core\Cursorial.Designer.PreviewHost.Core.csproj" />
     </ItemGroup>
 
     <!--
-        PreviewSession and friends are internal; the tests drive them in-process (the stdio pipe
-        is exercised separately by the end-to-end test, which spawns the real host executable).
+        Fixture user project: built WITH the tests (ordering-only reference, nothing copies into
+        this output) so its bin/<Configuration>/net10.0 exists at a known location for the
+        user-dir E2E tests. The output path is baked in as AssemblyMetadata rather than
+        recomputed in test code, so the tests follow the build's actual Configuration.
+    -->
+    <ItemGroup>
+        <ProjectReference Include="..\Cursorial.Designer.PreviewHost.Tests.UserApp\Cursorial.Designer.PreviewHost.Tests.UserApp.csproj"
+                          ReferenceOutputAssembly="false" />
+        <AssemblyMetadata Include="UserAppOutputDirectory"
+                          Value="$(MSBuildThisFileDirectory)..\Cursorial.Designer.PreviewHost.Tests.UserApp\bin\$(Configuration)\net10.0\" />
+        <ProjectReference Include="..\Cursorial.Designer.PreviewHost.Tests.FakeOldCore\Cursorial.Designer.PreviewHost.Tests.FakeOldCore.csproj"
+                          ReferenceOutputAssembly="false" />
+        <AssemblyMetadata Include="FakeOldCoreOutputDirectory"
+                          Value="$(MSBuildThisFileDirectory)..\Cursorial.Designer.PreviewHost.Tests.FakeOldCore\bin\$(Configuration)\net10.0\" />
+    </ItemGroup>
+
+    <!--
+        PreviewSession and friends are internal to the CORE; the tests drive them in-process, in
+        the default load context (the stdio pipe and the launcher's load-context construction are
+        exercised separately: the end-to-end test spawns the real launcher executable, and the
+        ALC boundary test builds the launcher's context in-process).
     -->
 
 </Project>

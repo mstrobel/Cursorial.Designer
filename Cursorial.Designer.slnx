@@ -11,7 +11,10 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="Cursorial.Designer.PreviewHost.Tests/Cursorial.Designer.PreviewHost.Tests.csproj" />
+    <Project Path="Cursorial.Designer.PreviewHost.Tests.UserApp/Cursorial.Designer.PreviewHost.Tests.UserApp.csproj" />
+    <Project Path="Cursorial.Designer.PreviewHost.Tests.FakeOldCore/Cursorial.Designer.PreviewHost.Tests.FakeOldCore.csproj" />
   </Folder>
   <Project Path="Cursorial.Designer.Protocol/Cursorial.Designer.Protocol.csproj" />
   <Project Path="Cursorial.Designer.PreviewHost/Cursorial.Designer.PreviewHost.csproj" />
+  <Project Path="Cursorial.Designer.PreviewHost.Core/Cursorial.Designer.PreviewHost.Core.csproj" />
 </Solution>

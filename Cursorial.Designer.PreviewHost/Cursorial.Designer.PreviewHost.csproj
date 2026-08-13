@@ -8,26 +8,49 @@
         <InvariantGlobalization>true</InvariantGlobalization>
     </PropertyGroup>
 
+    <!--
+        The LAUNCHER half of the preview host: process startup, the stdio pipe, and construction
+        of the AssemblyLoadContext the core runs in (CoreLoader). Deliberately framework-free —
+        the ONLY compile-time references are Protocol and the BCL — so every Cursorial.* assembly
+        binds inside the context the launcher builds, never the default context. Protocol stays
+        default-context on purpose: it is the type-identity bridge for the commands and events
+        that cross the launcher/core boundary.
+    -->
     <ItemGroup>
         <ProjectReference Include="..\Cursorial.Designer.Protocol\Cursorial.Designer.Protocol.csproj" />
     </ItemGroup>
 
     <!--
-        The framework comes from the sibling Cursorial checkout (CursorialRepoRoot, set in
-        Directory.Build.props, overridable with -p:CursorialRepoRoot=...). Cursorial.UI.Hosting.Headless
-        is the headless hosting substrate (SyntheticTerminalHost + manual frame stepping) — the
-        same engine the framework's own tests run on, which is exactly why the preview cannot
-        diverge from production rendering.
+        Build ordering WITHOUT a compile-time reference: a stray typeof(PreviewSession) in
+        launcher code must be a compile error, not a silent default-context bind. The payload
+        target below puts the core's output next to the launcher.
     -->
     <ItemGroup>
-        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Hosting.Headless\Cursorial.UI.Hosting.Headless.csproj" />
-        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Xaml\Cursorial.UI.Xaml.csproj" />
-        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Themes\Cursorial.UI.Themes.csproj" />
-        <!-- The whole first-party control family previews out of the box. -->
-        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Bars\Cursorial.UI.Bars.csproj" />
-        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.DataViews\Cursorial.UI.DataViews.csproj" />
-        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Dialogs\Cursorial.UI.Dialogs.csproj" />
+        <ProjectReference Include="..\Cursorial.Designer.PreviewHost.Core\Cursorial.Designer.PreviewHost.Core.csproj"
+                          ReferenceOutputAssembly="false" />
     </ItemGroup>
+
+    <!--
+        Harvests the core's built output and its copy-local closure (the framework assemblies
+        from the sibling checkout plus their third-party dependencies) into this project's output
+        AND publish directory. That keeps bin/<Configuration>/net10.0 a complete runnable host
+        (the plugin's dev-path probe launches it directly) and makes `dotnet publish` of this one
+        project produce the full flat bundle the Gradle packaging ships.
+    -->
+    <Target Name="CollectCorePayload" BeforeTargets="AssignTargetPaths">
+        <MSBuild Projects="..\Cursorial.Designer.PreviewHost.Core\Cursorial.Designer.PreviewHost.Core.csproj"
+                 Targets="BuiltProjectOutputGroup;DebugSymbolsProjectOutputGroup;ReferenceCopyLocalPathsOutputGroup">
+            <Output TaskParameter="TargetOutputs" ItemName="_CorePayload" />
+        </MSBuild>
+        <ItemGroup>
+            <_CorePayloadFile Include="@(_CorePayload)"
+                              Condition="'%(Extension)' == '.dll' Or '%(Extension)' == '.pdb'" />
+            <Content Include="@(_CorePayloadFile)"
+                     TargetPath="%(Filename)%(Extension)"
+                     CopyToOutputDirectory="PreserveNewest"
+                     CopyToPublishDirectory="PreserveNewest" />
+        </ItemGroup>
+    </Target>
 
     <ItemGroup>
         <InternalsVisibleTo Include="Cursorial.Designer.PreviewHost.Tests" />

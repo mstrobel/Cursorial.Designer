@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Test fixture: a REAL tiny user project, not a mock. Its build output has the exact shape
+        the preview host's user-directory preference must handle — the project's own assembly
+        plus its copy of the Cursorial framework closure (Core/UI/Xaml/… but, like any real app,
+        NOT the host-only assemblies Themes, Hosting.Headless, DataViews) — so the E2E tests can
+        point the launcher's user-dir argument at bin/<Configuration>/net10.0 and drive the
+        split host against it.
+        Never referenced for compilation; the test project takes a build-ordering-only
+        ProjectReference and bakes this output path in as AssemblyMetadata.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI\Cursorial.UI.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Xaml\Cursorial.UI.Xaml.csproj" />
+    </ItemGroup>
+
+</Project>

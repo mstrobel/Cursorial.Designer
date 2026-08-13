@@ -91,6 +91,53 @@ public class ProtocolTests
     }
 
     [Fact]
+    public void Ready_event_round_trips_framework_report()
+    {
+        var line = PreviewProtocol.Serialize(new ReadyEvent
+        {
+            ProtocolVersion = 1,
+            Pid = 99,
+            FrameworkVersion = "0.5.0.0",
+            FrameworkSource = "bundled",
+            FrameworkPath = "/opt/previewHost",
+            FallbackReason = "this project targets the older 0.4.0",
+            UserDirMissing = true,
+        });
+
+        Assert.Contains("\"frameworkVersion\":\"0.5.0.0\"", line);
+        Assert.Contains("\"frameworkSource\":\"bundled\"", line);
+        Assert.Contains("\"frameworkPath\":\"/opt/previewHost\"", line);
+        Assert.Contains("\"fallbackReason\":", line);
+        Assert.Contains("\"userDirMissing\":true", line);
+
+        var parsed = Assert.IsType<ReadyEvent>(PreviewProtocol.DeserializeEvent(line));
+        Assert.Equal("0.5.0.0", parsed.FrameworkVersion);
+        Assert.Equal("bundled", parsed.FrameworkSource);
+        Assert.Equal("/opt/previewHost", parsed.FrameworkPath);
+        Assert.Equal("this project targets the older 0.4.0", parsed.FallbackReason);
+        Assert.True(parsed.UserDirMissing);
+    }
+
+    [Fact]
+    public void Ready_event_omits_absent_framework_report_fields()
+    {
+        // The fields are ADDITIVE: an unpopulated report must serialize exactly like a
+        // pre-report host's payload, so older plugin builds parse it unchanged.
+        var line = PreviewProtocol.Serialize(new ReadyEvent { ProtocolVersion = 1, Pid = 99 });
+
+        Assert.DoesNotContain("framework", line);
+        Assert.DoesNotContain("fallbackReason", line);
+        Assert.DoesNotContain("userDirMissing", line);
+
+        var parsed = Assert.IsType<ReadyEvent>(PreviewProtocol.DeserializeEvent(line));
+        Assert.Null(parsed.FrameworkVersion);
+        Assert.Null(parsed.FrameworkSource);
+        Assert.Null(parsed.FrameworkPath);
+        Assert.Null(parsed.FallbackReason);
+        Assert.Null(parsed.UserDirMissing);
+    }
+
+    [Fact]
     public void Unknown_command_type_throws()
     {
         Assert.ThrowsAny<System.Text.Json.JsonException>(

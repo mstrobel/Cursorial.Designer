@@ -104,6 +104,36 @@ class CursorialPreviewEditor(
         preferredSize = java.awt.Dimension(0, preferredSize.height)
     }
 
+    // ── The "project not built" cue (ruling G1) ─────────────────────────
+    // Louder than the status strip — user types silently fail to resolve until a build exists,
+    // which the strip is too quiet to carry — but softer than refusing to preview (framework-only
+    // markup still renders on the bundled framework). Dismissible per editor; a healthy ready
+    // resets the dismissal so the cue can return if the output disappears again. Fed from BOTH
+    // detection points: the host's ready payload (userDirMissing — dir passed but empty) and the
+    // spawn-time locator (no output found, so no --user-dir was passed at all).
+    private var userDirCueDismissed = false
+
+    private val userDirCue = com.intellij.ui.EditorNotificationPanel(
+        com.intellij.ui.EditorNotificationPanel.Status.Warning,
+    ).apply {
+        createActionLabel("Dismiss") {
+            userDirCueDismissed = true
+            isVisible = false
+        }
+        isVisible = false
+    }
+
+    private fun showUserDirCue(text: String) {
+        if (userDirCueDismissed) return
+        userDirCue.text = text
+        userDirCue.isVisible = true
+    }
+
+    private fun hideUserDirCue() {
+        userDirCueDismissed = false
+        userDirCue.isVisible = false
+    }
+
     // ── Properties panel (toggled from the toolbar) ─────────────────────
     // Presentation follows the framework's own InspectorDemo: one tree, "Name: value" per
     // property, expanding into the full provenance — kind/priority/resource key and every
@@ -148,7 +178,13 @@ class CursorialPreviewEditor(
     }
 
     private val rootPanel: JPanel = JPanel(BorderLayout()).apply {
-        add(buildToolbar(), BorderLayout.NORTH)
+        add(
+            JPanel(BorderLayout()).apply {
+                add(buildToolbar(), BorderLayout.NORTH)
+                add(userDirCue, BorderLayout.SOUTH)
+            },
+            BorderLayout.NORTH,
+        )
         add(splitter, BorderLayout.CENTER)
         add(statusLabel, BorderLayout.SOUTH)
     }
@@ -211,8 +247,22 @@ class CursorialPreviewEditor(
         }
     }
 
+    /** Set when the project had NO built output at load; the rebuild tick then watches for the
+     *  FIRST build landing instead of for stamp changes. */
+    private var awaitingFirstBuild = false
+
     private fun checkForRebuild() {
-        if (watchedAssemblies.isEmpty()) return
+        if (watchedAssemblies.isEmpty()) {
+            // Nothing to stamp-watch: either no owning project (nothing will ever appear), or
+            // the project was not built yet — poll for the first output and restart onto it
+            // (the restart re-evaluates --user-dir; a healthy ready then clears the cue).
+            if (awaitingFirstBuild && UserAssemblyLocator.locate(file).assemblies.isNotEmpty()) {
+                awaitingFirstBuild = false
+                statusLabel.text = "Project built — restarting preview…"
+                hostProcess?.restart()
+            }
+            return
+        }
         val current = watchedAssemblies.keys.associateWith { java.io.File(it).lastModified() }
         if (current == watchedAssemblies) {
             pendingAssemblyChange = null
@@ -310,7 +360,14 @@ class CursorialPreviewEditor(
                 "Cursorial PreviewHost not found; set ${CursorialDesignerSettings.ENV_PREVIEW_HOST_DLL} " +
                     "or build it to ${CursorialDesignerSettings.DEFAULT_HOST_RELATIVE_PATH}"
         } else {
-            val process = PreviewHostProcess(hostDll)
+            // --user-dir: the document's owning project's build output, re-located on every
+            // (re)start — restart-on-rebuild (ruling G2) means a restart is exactly when the
+            // directory can have changed. Discovery is the locator heuristic (the in-repo
+            // precedent); its TODO tracks the workspace-model replacement.
+            val process = PreviewHostProcess(
+                hostDll,
+                userDirectoryProvider = { UserAssemblyLocator.locateOutputDirectory(file)?.toPath() },
+            )
             Disposer.register(this, process)
             process.addListener(hostListener)
             hostProcess = process
@@ -355,7 +412,11 @@ class CursorialPreviewEditor(
     }
 
     private fun onHostReady(event: ReadyEvent) {
-        logger.info("Preview host ready: protocol=${event.protocolVersion}, pid=${event.pid}")
+        logger.info(
+            "Preview host ready: protocol=${event.protocolVersion}, pid=${event.pid}" +
+                (event.frameworkSource?.let { ", framework=$it ${event.frameworkVersion} @ ${event.frameworkPath}" } ?: ""),
+        )
+        onEdt { showFrameworkReport(event) }
         val process = hostProcess ?: return
 
         val (columns, rows) = gridPanel.gridSize()
@@ -371,13 +432,34 @@ class CursorialPreviewEditor(
         process.sendCommand(AdvanceTimeCommand(0))
     }
 
+    /**
+     * Dispatches the host's framework report (see docs/protocol.md, "Framework report"). The
+     * three degraded conditions are disjoint on the wire; each maps to its ruled treatment:
+     * userDirMissing → the dismissible cue, fallbackReason → the quiet strip note, source=user
+     * (or an unreported/bundled-clean payload) → nothing, and any prior cue clears.
+     */
+    private fun showFrameworkReport(event: ReadyEvent) {
+        when {
+            event.userDirMissing == true -> showUserDirCue(
+                "Project output not found — previewing with the designer's built-in Cursorial" +
+                    (event.frameworkVersion?.let { " $it" } ?: "") +
+                    ". Build the project to preview its own types.",
+            )
+            event.fallbackReason != null -> {
+                hideUserDirCue()
+                statusLabel.text = event.fallbackReason
+                statusLabel.toolTipText = event.fallbackReason
+            }
+            else -> hideUserDirCue()
+        }
+    }
+
     private fun sendLoadXaml() {
         val process = hostProcess ?: return
         val document = document ?: return
         val xaml = ApplicationManager.getApplication().runReadAction(Computable { document.text })
 
         val located = UserAssemblyLocator.locate(file)
-        located.problem?.let { statusLabel.text = it }
 
         // sendLoadXaml can run on the host pump thread; the watch map lives on the EDT (timer).
         val stamps = located.assemblies.associateWith { java.io.File(it).lastModified() }
@@ -385,6 +467,12 @@ class CursorialPreviewEditor(
             watchedAssemblies.clear()
             pendingAssemblyChange = null
             watchedAssemblies.putAll(stamps)
+            // No output at all means no --user-dir was passed, so the host cannot report the
+            // condition itself (its userDirMissing covers the passed-but-empty shape) — the
+            // locator's problem drives the same cue from this side, and arms the first-build
+            // watch that restarts onto the output once it exists.
+            awaitingFirstBuild = located.problem != null
+            located.problem?.let { showUserDirCue(it) }
         }
 
         process.sendCommand(

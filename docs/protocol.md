@@ -33,7 +33,9 @@ the session survives errors and keeps rendering the previous content.
                                            // down/up are real transitions — holding a key holds
                                            // pressed state; repeated down while held = key repeat
 {"type":"text","text":"abc"}
-{"type":"advanceTime","milliseconds":100}  // drives the frozen clock (animations)
+{"type":"advanceTime","milliseconds":100}  // drives the frozen clock (timers; property animations
+                                           // render SNAPPED — the session disables the animation
+                                           // scheduler at initialize, the design-surface posture)
 {"type":"hitTest","id":7,"column":5,"row":2}
 {"type":"getChildren","id":9,"elementId":3}   // descend below a hit-test anchor / explore siblings
 {"type":"describeElement","id":12,"elementId":3}  // re-answers hitTestResult with FRESH bounds
@@ -71,7 +73,16 @@ exits on Escape — WPF-style.
 ## Events (host → plugin)
 
 ```jsonc
-{"type":"ready","protocolVersion":1,"pid":1234}
+{"type":"ready","protocolVersion":1,"pid":1234,
+ "frameworkVersion":"0.5.0.0",        // Cursorial.Core version the session resolves (additive)
+ "frameworkSource":"bundled",         // "user" = the project's build output, "bundled" = the
+                                      // designer's own copies (additive)
+ "frameworkPath":"/…/previewHost",    // directory Cursorial.Core resolves from (additive)
+ "fallbackReason":null,               // set (human-readable) when the project's framework was
+                                      // present but NOT used, e.g. older than the bundle; its
+                                      // presence is the IDE's cue to narrate the fallback
+ "userDirMissing":true}               // only when a user dir was GIVEN but held no assemblies
+                                      // (not built / cleaned); omitted otherwise
 
 {"type":"frame","columns":80,"rows":24,
  "cursor":{"row":0,"column":0,"visible":false,"shape":"default"},
@@ -148,6 +159,27 @@ the session's capability profile before encoding — an `ansi16` preview only ev
 
 Element ids are stable for the lifetime of the currently loaded document and invalidated by the
 next `loadXaml`.
+
+### Framework report
+
+The `ready` payload reports which Cursorial framework the session runs on. The host process is
+spawned per preview tab and the decision is fixed at spawn (the IDE restarts the host when the
+project's build output changes), so the report is authoritative for the process lifetime. All
+five fields are additive — an older host simply omits them, and the plugin must treat their
+absence as "unreported", not "bundled".
+
+The three degradable launch conditions are disjoint by construction, so the plugin can
+dispatch on exactly one field each:
+
+| condition | discriminator | expected IDE treatment |
+| --- | --- | --- |
+| user dir given but missing/empty (not built) | `userDirMissing == true` | visible-but-dismissible cue — user types will silently fail to resolve |
+| user framework present but not used (e.g. older than the bundle) | `fallbackReason != null` | quiet status-strip note |
+| user framework in use | `frameworkSource == "user"` | nothing — the healthy path |
+
+A fourth, non-degraded shape exists: `frameworkSource == "bundled"` with both `fallbackReason`
+and `userDirMissing` absent — either no user directory was given, or the given output ships no
+Cursorial of its own (nothing to prefer, nothing degraded).
 
 ## Versioning
 

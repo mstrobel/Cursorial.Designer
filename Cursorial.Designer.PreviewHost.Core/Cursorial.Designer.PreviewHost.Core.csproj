@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <!--
+            The CORE half of the preview host: everything framework-bound (the session, the editor
+            services, frame serialization). The launcher loads this assembly into the session's
+            AssemblyLoadContext, so every Cursorial.* reference below binds in THAT context and all
+            framework statics (XamlSchemaContext.Default, the XamlModule hooks) initialize inside
+            it. The namespace stays Cursorial.Designer.PreviewHost — only the assembly identity is
+            new.
+        -->
+        <RootNamespace>Cursorial.Designer.PreviewHost</RootNamespace>
+        <!--
+            Materialize NuGet runtime assets (Microsoft.Extensions.TimeProvider.Testing, the
+            headless host's time source) into this library's output so the launcher's payload
+            harvest ships them. Class libraries skip them by default; the pre-split host got them
+            for free by being an Exe.
+        -->
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Cursorial.Designer.Protocol\Cursorial.Designer.Protocol.csproj" />
+    </ItemGroup>
+
+    <!--
+        The framework comes from the sibling Cursorial checkout (CursorialRepoRoot, set in
+        Directory.Build.props, overridable with -p:CursorialRepoRoot=...). Cursorial.UI.Hosting.Headless
+        is the headless hosting substrate (SyntheticTerminalHost + manual frame stepping) — the
+        same engine the framework's own tests run on, which is exactly why the preview cannot
+        diverge from production rendering.
+    -->
+    <ItemGroup>
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Hosting.Headless\Cursorial.UI.Hosting.Headless.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Xaml\Cursorial.UI.Xaml.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Themes\Cursorial.UI.Themes.csproj" />
+        <!-- The whole first-party control family previews out of the box. -->
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Bars\Cursorial.UI.Bars.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.DataViews\Cursorial.UI.DataViews.csproj" />
+        <ProjectReference Include="$(CursorialRepoRoot)Cursorial.UI.Dialogs\Cursorial.UI.Dialogs.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="Cursorial.Designer.PreviewHost.Tests" />
+    </ItemGroup>
+
+</Project>
