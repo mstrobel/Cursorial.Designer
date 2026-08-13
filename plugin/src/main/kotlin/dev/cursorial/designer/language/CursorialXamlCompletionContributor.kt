@@ -4,8 +4,10 @@ import com.intellij.codeInsight.completion.CompletionContributor
 import com.intellij.codeInsight.completion.CompletionParameters
 import com.intellij.codeInsight.completion.CompletionProvider
 import com.intellij.codeInsight.completion.CompletionResultSet
+import com.intellij.codeInsight.completion.CompletionSorter
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.codeInsight.completion.InsertHandler
+import com.intellij.codeInsight.lookup.LookupElementWeigher
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.icons.AllIcons
@@ -53,7 +55,17 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
                 var prefixStart = offset
                 while (prefixStart > 0 && (text[prefixStart - 1].isLetterOrDigit() || text[prefixStart - 1] == '_' || text[prefixStart - 1] == '-'))
                     prefixStart--
-                val matched = result.withPrefixMatcher(text.subSequence(prefixStart, offset).toString())
+
+                // Force a deterministic order: the platform's default sorter (Rider's ML relevance
+                // weigher) floats predicted-common members to the top and leaves the rest in the
+                // lexicographic tiebreaker, so a list we hand over pre-sorted still lands part-ordered.
+                // An empty relevance sorter weighed only by the bare member name overrides that — the
+                // items sort A→Z by the name without its `prefix:` and `Owner.` qualification, so
+                // Grid.Column files under "Column" and x:Name under "Name" (mirrors the host's NameOf).
+                // First-draft diagnostic: strict name order is trivial to eyeball; a shipped ordering
+                // would likely restore a relevance lift for context (e.g. parent attached properties).
+                val sorted = result.withRelevanceSorter(CompletionSorter.emptySorter().weigh(ByBareName))
+                val matched = sorted.withPrefixMatcher(text.subSequence(prefixStart, offset).toString())
 
                 for (item in completions.items)
                     matched.addElement(lookup(item.text, item.kind, item.detail, item.insert, item.caret))
@@ -92,6 +104,25 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
             else -> builder
         }
         return builder
+    }
+
+    /**
+     * Sorts by the bare member name — the `prefix:` and `Owner.` qualification stripped — so the
+     * completion list reads strictly A→Z (mirrors the host's NameOf). Kind-agnostic by design: it
+     * works from the lookup string, and value completions (enum members) carry neither ':' nor '.',
+     * so they sort by their own text unchanged.
+     */
+    private object ByBareName : LookupElementWeigher("cursorial.bareName") {
+        override fun weigh(element: LookupElement): Comparable<*> = bareName(element.lookupString)
+
+        private fun bareName(text: String): String {
+            var s = text
+            val colon = s.indexOf(':')
+            if (colon in 0..s.length - 2) s = s.substring(colon + 1)
+            val dot = s.indexOf('.')
+            if (dot in 0..s.length - 2) s = s.substring(dot + 1)
+            return s
+        }
     }
 
     /** Completing an attribute inserts `="…"` and parks the caret between the quotes. */
