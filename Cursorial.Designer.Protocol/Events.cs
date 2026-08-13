@@ -96,6 +96,75 @@ public sealed class FrameEvent : PreviewEvent
 
     /// <summary>The changed rows of a delta frame.</summary>
     public IReadOnlyList<ChangedRowInfo>? Changed { get; init; }
+
+    /// <summary>
+    /// The out-of-band fragments layered over the cell grid — scaled text (OSC 66) and images
+    /// (Kitty/iTerm2/Sixel), which the run-length cell grid cannot express. On a FULL frame this is
+    /// the authoritative set (an empty list means "none"). On a DELTA frame it is carried ONLY when
+    /// the set changed since the previous frame; <see langword="null"/> on a delta means "unchanged —
+    /// keep the prior fragments" (so a large image is not re-sent every play-mode tick).
+    /// </summary>
+    public IReadOnlyList<FragmentInfo>? Fragments { get; init; }
+}
+
+/// <summary>
+/// One positioned fragment layered over the cell grid. <see cref="Kind"/> selects which payload
+/// fields apply. Anchored at its top-left cell (<see cref="Column"/>, <see cref="Row"/>) and covering
+/// <see cref="Columns"/>×<see cref="Rows"/> cells; the cells beneath it arrive background-only in the
+/// grid, so the fragment carries the real content.
+/// </summary>
+public sealed class FragmentInfo
+{
+    /// <summary><c>sizedText</c> or <c>image</c>.</summary>
+    public required string Kind { get; init; }
+
+    public required int Column { get; init; }
+
+    public required int Row { get; init; }
+
+    /// <summary>Cell-footprint width.</summary>
+    public required int Columns { get; init; }
+
+    /// <summary>Cell-footprint height.</summary>
+    public required int Rows { get; init; }
+
+    // ── sizedText (OSC 66) ──
+
+    /// <summary>Integer scale 1–7: one source cell renders as <c>Scale</c>×<c>Scale</c> cells. sizedText only.</summary>
+    public int? Scale { get; init; }
+
+    /// <summary>Fractional-scale numerator (0 = none) — shrinks the glyph height WITHIN the block. sizedText only.</summary>
+    public int? Numerator { get; init; }
+
+    /// <summary>Fractional-scale denominator (0 = none). sizedText only.</summary>
+    public int? Denominator { get; init; }
+
+    /// <summary>Vertical alignment within the block: 0 Top, 1 Bottom, 2 Center. sizedText only.</summary>
+    public int? VAlign { get; init; }
+
+    /// <summary>Horizontal alignment within the block: 0 Left, 1 Right, 2 Center. sizedText only.</summary>
+    public int? HAlign { get; init; }
+
+    /// <summary>The text lines (split on newline), one per <c>Scale</c>-tall row of the block. sizedText only.</summary>
+    public IReadOnlyList<string>? Lines { get; init; }
+
+    /// <summary>
+    /// The fragment's fg/bg/attributes, carried INLINE (not via the frame's style table, which a delta
+    /// frame rebuilds per changed row and could not index). sizedText only.
+    /// </summary>
+    public StyleInfo? Style { get; init; }
+
+    // ── image ──
+
+    /// <summary>
+    /// <c>png</c>, <c>jpeg</c>, or <c>gif</c> — the encoding of the base64 <see cref="Data"/>, decodable
+    /// directly by the IDE. <c>sixel</c> marks a Sixel region whose payload the IDE cannot decode; it
+    /// renders a placeholder at the footprint. image only.
+    /// </summary>
+    public string? Format { get; init; }
+
+    /// <summary>Base64 of the encoded image bytes (omitted for <c>sixel</c>). image only.</summary>
+    public string? Data { get; init; }
 }
 
 /// <summary>One changed row of a delta frame.</summary>

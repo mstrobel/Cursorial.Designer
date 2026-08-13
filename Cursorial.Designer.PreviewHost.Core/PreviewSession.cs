@@ -1169,6 +1169,21 @@ internal sealed class PreviewSession : IDisposable
 
     // ───────────────────────────── configuration ─────────────────────────────
 
+    /// <summary>
+    /// The Kitty preset with the OSC 66 text-sizing protocol advertised (real Kitty supports it): the
+    /// framework then emits SCALED-TEXT fragments instead of falling back to FIGlet glyphs. Kept a
+    /// distinct profile so the FIGlet fallback stays previewable under the other profiles.
+    /// </summary>
+    private static readonly Cursorial.Terminal.TerminalCapabilities KittySizing =
+        HeadlessCapabilities.KittyTruecolor with
+        {
+            Output = HeadlessCapabilities.KittyTruecolor.Output with
+            {
+                TextSizing = new Cursorial.Output.Capabilities.TextSizingCapabilities(
+                    Width: false, Scale: true, ReliableWideGlyphs: true),
+            },
+        };
+
     private static bool TryMapCapabilities(string? name, out Cursorial.Terminal.TerminalCapabilities capabilities)
     {
         (var known, capabilities) = name?.ToLowerInvariant() switch
@@ -1177,6 +1192,7 @@ internal sealed class PreviewSession : IDisposable
             "ansi16"                  => (true, HeadlessCapabilities.Ansi16Legacy),
             "no-motion"               => (true, HeadlessCapabilities.NoMotion),
             "kitty-graphics"          => (true, HeadlessCapabilities.KittyGraphics),
+            "kitty-sizing"            => (true, KittySizing),
             "sixel"                   => (true, HeadlessCapabilities.SixelGraphics),
             "iterm2"                  => (true, HeadlessCapabilities.ITerm2Graphics),
             "vt100"                   => (true, HeadlessCapabilities.GenericVt),

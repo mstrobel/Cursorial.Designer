@@ -4,15 +4,18 @@ using Cursorial.Designer.Protocol;
 using Cursorial.Media;
 using Cursorial.Output;
 using Cursorial.Rendering;
+using Cursorial.Rendering.Fragments;
+using Cursorial.Rendering.Imaging;
 using Cursorial.Text;
 
 namespace Cursorial.Designer.PreviewHost;
 
 /// <summary>
 /// Turns a composited <see cref="CellBuffer"/> into the wire <see cref="FrameEvent"/>: per-row
-/// run-length encoding over a per-frame deduplicated style table. This reads the same buffer the
-/// framework's own tests assert against, so what the IDE paints is what a terminal would show —
-/// minus fragments (Kitty/Sixel/iTerm2 images), which are not carried in v1.
+/// run-length encoding over a per-frame deduplicated style table, plus the out-of-band fragment
+/// sidecar (scaled text and Kitty/iTerm2/Sixel images) that the cell grid cannot express. This reads
+/// the same buffer the framework's own tests assert against, so what the IDE paints is what a terminal
+/// would show.
 /// </summary>
 internal static class FrameSerializer
 {
@@ -79,8 +82,90 @@ internal static class FrameSerializer
             },
             Styles = styles,
             Lines = lines,
+            Fragments = SerializeFragments(buffer, quantizer, lightBase),
         };
     }
+
+    /// <summary>
+    /// The out-of-band fragments layered over the grid — scaled text and images — in a stable
+    /// (row, column) order (the backing dictionary's enumeration order is not). Null when there are
+    /// none, so an ordinary preview carries no fragment overhead.
+    /// </summary>
+    private static IReadOnlyList<FragmentInfo>? SerializeFragments(CellBuffer buffer, StyleQuantizer? quantizer, bool lightBase)
+    {
+        List<FragmentInfo>? fragments = null;
+        foreach (var (position, entry) in buffer.Fragments)
+        {
+            var info = entry.Fragment switch
+            {
+                SizedTextFragment sized => SizedTextFragmentInfo(position, sized, quantizer, lightBase),
+                KittyImageFragment kitty => ImageFragmentInfo(position, kitty.GetSize(), kitty.Image),
+                ITerm2ImageFragment iterm => ImageFragmentInfo(position, iterm.GetSize(), iterm.Image),
+                SixelFragment sixel => SixelFragmentInfo(position, sixel.GetSize()),
+                _ => null,
+            };
+
+            if (info is not null)
+                (fragments ??= []).Add(info);
+        }
+
+        // Deterministic order so the wire — and MakeDelta's set comparison — is stable across frames.
+        fragments?.Sort(static (a, b) => a.Row != b.Row ? a.Row - b.Row : a.Column - b.Column);
+        return fragments;
+    }
+
+    private static FragmentInfo SizedTextFragmentInfo((int Column, int Row) position, SizedTextFragment sized, StyleQuantizer? quantizer, bool lightBase)
+    {
+        var size = sized.GetSize();
+        var sizing = sized.Sizing;
+        var style = quantizer?.Quantize(sized.Style) ?? sized.Style;
+        return new FragmentInfo
+        {
+            Kind = "sizedText",
+            Column = position.Column,
+            Row = position.Row,
+            Columns = size.Columns,
+            Rows = size.Rows,
+            Scale = sizing.Scale,
+            Numerator = sizing.Numerator == 0 ? null : sizing.Numerator,
+            Denominator = sizing.Denominator == 0 ? null : sizing.Denominator,
+            VAlign = sizing.Vertical == TextSizingVerticalAlignment.Top ? null : (int)sizing.Vertical,
+            HAlign = sizing.Horizontal == TextSizingHorizontalAlignment.Left ? null : (int)sizing.Horizontal,
+            Lines = sized.Lines.ToArray(),
+            Style = ToStyleInfo(style, lightBase),
+        };
+    }
+
+    private static FragmentInfo ImageFragmentInfo((int Column, int Row) position, Size size, ImageData image)
+        => new()
+        {
+            Kind = "image",
+            Column = position.Column,
+            Row = position.Row,
+            Columns = size.Columns,
+            Rows = size.Rows,
+            Format = image.Format switch
+            {
+                ImageFormat.Png => "png",
+                ImageFormat.Jpeg => "jpeg",
+                ImageFormat.Gif => "gif",
+                _ => "png",
+            },
+            Data = Convert.ToBase64String(image.Bytes.Span),
+        };
+
+    // Sixel carries only its escape-sequence payload (not a format the IDE can decode), so report the
+    // footprint with no data — the IDE draws a labeled placeholder there.
+    private static FragmentInfo SixelFragmentInfo((int Column, int Row) position, Size size)
+        => new()
+        {
+            Kind = "image",
+            Column = position.Column,
+            Row = position.Row,
+            Columns = size.Columns,
+            Rows = size.Rows,
+            Format = "sixel",
+        };
 
     /// <summary>
     /// The event to emit for <paramref name="next"/> given the previously emitted
@@ -101,7 +186,8 @@ internal static class FrameSerializer
         }
 
         var cursorChanged = !CursorsEqual(last.Cursor, next.Cursor);
-        if (changedRows.Count == 0 && !cursorChanged)
+        var fragmentsChanged = !FragmentsEqual(last.Fragments, next.Fragments);
+        if (changedRows.Count == 0 && !cursorChanged && !fragmentsChanged)
             return null;
 
         // A local style table holding only what the changed rows reference.
@@ -135,8 +221,47 @@ internal static class FrameSerializer
             Lines = [],
             Delta = true,
             Changed = changed,
+            // Carried only when the set changed: null tells the client to keep its prior fragments,
+            // so a static image is not re-serialized on every play-mode tick.
+            Fragments = fragmentsChanged ? next.Fragments : null,
         };
     }
+
+    private static bool FragmentsEqual(IReadOnlyList<FragmentInfo>? a, IReadOnlyList<FragmentInfo>? b)
+    {
+        var ca = a?.Count ?? 0;
+        var cb = b?.Count ?? 0;
+        if (ca != cb)
+            return false;
+        for (var i = 0; i < ca; i++)
+        {
+            FragmentInfo x = a![i], y = b![i];
+            if (x.Kind != y.Kind || x.Column != y.Column || x.Row != y.Row
+                || x.Columns != y.Columns || x.Rows != y.Rows
+                || x.Scale != y.Scale || x.Numerator != y.Numerator || x.Denominator != y.Denominator
+                || x.VAlign != y.VAlign || x.HAlign != y.HAlign
+                || x.Format != y.Format || x.Data != y.Data
+                || !LinesEqual(x.Lines, y.Lines) || !FragmentStylesEqual(x.Style, y.Style))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool LinesEqual(IReadOnlyList<string>? a, IReadOnlyList<string>? b)
+    {
+        var ca = a?.Count ?? 0;
+        var cb = b?.Count ?? 0;
+        if (ca != cb)
+            return false;
+        for (var i = 0; i < ca; i++)
+            if (a![i] != b![i])
+                return false;
+        return true;
+    }
+
+    private static bool FragmentStylesEqual(StyleInfo? a, StyleInfo? b)
+        => (a is null && b is null) || (a is not null && b is not null && StylesEqual(a, b));
 
     private static bool RowsEqual(FrameEvent last, FrameEvent next, int row)
     {

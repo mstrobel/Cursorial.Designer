@@ -92,7 +92,12 @@ exits on Escape — WPF-style.
 {"type":"frame","columns":80,"rows":24,
  "cursor":{"row":0,"column":0,"visible":false,"shape":"default"},
  "styles":[{"fg":"#c0caf5","bg":"#1a1b26","attrs":["bold"]},{}],
- "lines":[[{"t":"Hello","s":0,"w":5},{"t":" ","s":1,"w":75}], …]}
+ "lines":[[{"t":"Hello","s":0,"w":5},{"t":" ","s":1,"w":75}], …],
+ "fragments":[                             // out-of-band overlays the cell grid can't express;
+   {"kind":"sizedText","column":2,"row":1,"columns":6,"rows":2,   // OSC 66 scaled text
+    "scale":2,"lines":["BIG"],"style":{"fg":"#c0caf5"}},          // n/d/vAlign/hAlign omitted = default
+   {"kind":"image","column":0,"row":4,"columns":10,"rows":5,      // Kitty/iTerm2 image
+    "format":"png","data":"<base64>"}]}                           // format "sixel" = placeholder (no data)
 
 {"type":"diagnostics","sourceUri":"file:///…","items":[
   {"code":"CUR2001","message":"…","line":3,"column":5,"severity":"error"}]}
@@ -158,6 +163,13 @@ not, the host emits a **row-level delta**: `"delta": true`, `lines` empty, and `
 `{"i": rowIndex, "runs": […]}` entries whose style indices reference *this* event's `styles`
 table. A full frame (no `delta` member) is sent on the first emission and whenever dimensions
 change; it fully replaces the client's cached state.
+
+`fragments` follows the same "only what changed" rule but is tracked as a whole set. A full frame
+always carries the authoritative set (an empty array — or omitted — means none). A delta carries
+`fragments` **only when the set changed** since the previous frame; when a delta omits `fragments`,
+the client keeps its cached set (so a static image is not re-sent on every play-mode tick). Each
+fragment's `style` is carried inline (not via the frame `styles` table, which a delta rebuilds per
+changed row).
 
 ### Frame encoding
 
