@@ -237,7 +237,9 @@ public sealed class CompletionItemInfo
     /// <summary>The text to insert (may carry an xmlns prefix, e.g. <c>bars:Ribbon</c>).</summary>
     public required string Text { get; init; }
 
-    /// <summary><c>element</c>, <c>attribute</c>, or <c>value</c> — drives the IDE's icon and insert handling.</summary>
+    /// <summary><c>element</c>, <c>attribute</c>, <c>event</c>, or <c>value</c> — drives the IDE's icon and insert
+    /// handling. <c>event</c> is a routed/CLR event: it inserts like an <c>attribute</c> (an event-handler
+    /// attribute) but carries a distinct icon.</summary>
     public required string Kind { get; init; }
 
     /// <summary>Optional detail shown alongside (e.g. the declaring CLR namespace, or the enum type).</summary>

@@ -16,6 +16,7 @@ import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ProcessingContext
 import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
+import icons.ReSharperIcons
 
 /**
  * Code completion for Cursorial XAML: element names, attribute names (members + x: directives),
@@ -100,6 +101,11 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
         builder = when (kind) {
             "element" -> builder.withIcon(AllIcons.Nodes.Class)
             "attribute" -> builder.withIcon(AllIcons.Nodes.Property).withInsertHandler(AttributeInsertHandler)
+            // An event authors as an event-handler attribute (Click="…"), so it keeps the attribute
+            // insert behavior — only the icon differs, to set it apart from a real property. The
+            // platform AllIcons.Nodes has no event glyph (it is a Rider/.NET-only concept), so use
+            // ReSharper's own event symbol icon — the same one Rider shows for a C# event.
+            "event" -> builder.withIcon(ReSharperIcons.PsiSymbols.Event).withInsertHandler(AttributeInsertHandler)
             "value" -> builder.withIcon(AllIcons.Nodes.Enum)
             else -> builder
         }

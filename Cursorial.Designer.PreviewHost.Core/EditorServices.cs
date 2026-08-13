@@ -326,8 +326,17 @@ internal static partial class EditorServices
                     var type = ResolveElement(context.ElementName, namespaces, provider);
                     if (type is not null)
                     {
+                        // GetKnownMemberNames returns settable properties AND events under one flat
+                        // name list; a routed event (KeyDown, Click, …) authors as an event-handler
+                        // attribute just like a property, so it stays in the list — but it earns the
+                        // "event" kind (via XamlMember.IsEvent) so the IDE icons it apart from a real
+                        // property rather than showing the property glyph.
                         foreach (var member in provider.GetKnownMemberNames(type.ClrType))
-                            items.Add(new CompletionItemInfo { Text = member, Kind = "attribute" });
+                            items.Add(new CompletionItemInfo
+                            {
+                                Text = member,
+                                Kind = type.TryGetMember(member)?.IsEvent == true ? "event" : "attribute",
+                            });
                     }
                 }
 

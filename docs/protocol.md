@@ -126,6 +126,7 @@ exits on Escape — WPF-style.
 {"type":"completions","replyTo":12,"items":[
   {"text":"Button","kind":"element","detail":"Cursorial.UI.Controls"},
   {"text":"Content","kind":"attribute"},
+  {"text":"MouseDown","kind":"event"},        // a routed/CLR event; inserts like an attribute, distinct icon
   {"text":"Visible","kind":"value","detail":"Visibility"},
   {"text":"ThemeKeys.PanelBrush","kind":"value","detail":"Theme.PanelBrush",
    "insert":"{x:Static ThemeKeys.PanelBrush}"}]}  // insert: text to insert when it differs from

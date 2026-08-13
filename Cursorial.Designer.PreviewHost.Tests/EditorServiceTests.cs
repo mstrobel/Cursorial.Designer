@@ -268,6 +268,35 @@ public class EditorServiceTests : IDisposable
         Assert.Contains(completions.Items, i => i is { Text: "x:Name", Kind: "attribute" });
     }
 
+    [Fact] // Routed events (Click, MouseDown, KeyDown…) stay in attribute-name completion — they author
+    // as event-handler attributes — but carry the "event" kind so the IDE icons them apart from real
+    // properties (task #29: they were showing the property icon).
+    public void Complete_classifies_events_distinctly_from_properties()
+    {
+        _session.Execute(new CompleteCommand
+        {
+            Id = 4,
+            Xaml = $"<StackPanel {Xmlns}>\n    <Button \n</StackPanel>",
+            Line = 2,
+            Column = 13, // inside the <Button …> tag, right after the space
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+
+        // Real properties keep the "attribute" kind.
+        Assert.Contains(completions.Items, i => i is { Text: "Width", Kind: "attribute" });
+        Assert.Contains(completions.Items, i => i is { Text: "Content", Kind: "attribute" });
+
+        // Routed events are still offered (event-handler attributes) but classified "event".
+        Assert.Contains(completions.Items, i => i is { Text: "Click", Kind: "event" });
+        Assert.Contains(completions.Items, i => i is { Text: "MouseDown", Kind: "event" });
+        Assert.Contains(completions.Items, i => i is { Text: "KeyDown", Kind: "event" });
+
+        // And never as "attribute" — the whole point of the fix.
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Click", Kind: "attribute" });
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "MouseDown", Kind: "attribute" });
+    }
+
     [Fact] // Style.RequiresCapabilities (the @media-model capability gate) completes like any enum property.
     public void Complete_offers_capability_values_for_style_requires()
     {
