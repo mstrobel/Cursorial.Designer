@@ -33,9 +33,9 @@ the session survives errors and keeps rendering the previous content.
                                            // down/up are real transitions — holding a key holds
                                            // pressed state; repeated down while held = key repeat
 {"type":"text","text":"abc"}
-{"type":"advanceTime","milliseconds":100}  // drives the frozen clock (timers; property animations
-                                           // render SNAPPED — the session disables the animation
-                                           // scheduler at initialize, the design-surface posture)
+{"type":"advanceTime","milliseconds":100}  // drives the frozen clock (timers always; property
+                                           // animations render SNAPPED until setAnimations enables
+                                           // them — the session starts in the design-surface posture)
 {"type":"hitTest","id":7,"column":5,"row":2}
 {"type":"getChildren","id":9,"elementId":3}   // descend below a hit-test anchor / explore siblings
 {"type":"describeElement","id":12,"elementId":3}  // re-answers hitTestResult with FRESH bounds
@@ -60,6 +60,11 @@ the session survives errors and keeps rendering the previous content.
  "assemblies":["…"],"filePath":"/…/View.xaml"}  // editor service: source location via portable
                                            // PDBs, or in-document for x:Reference/x:Key targets
 {"type":"setTheme","themeBase":"light","colorTier":"truecolor"}
+{"type":"setAnimations","enabled":true}    // play/pause: enable/disable property animations.
+                                           // enabling is PROSPECTIVE (the host runs only animations
+                                           // begun while enabled) — send enabled:true then re-issue
+                                           // loadXaml to re-instantiate, and stream advanceTime.
+                                           // disabling snaps running animations to the design rest.
 {"type":"shutdown"}
 ```
 

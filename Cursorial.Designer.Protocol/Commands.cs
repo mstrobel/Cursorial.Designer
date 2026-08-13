@@ -26,6 +26,7 @@ namespace Cursorial.Designer.Protocol;
 [JsonDerivedType(typeof(HoverCommand), "hover")]
 [JsonDerivedType(typeof(DefinitionCommand), "definition")]
 [JsonDerivedType(typeof(SetThemeCommand), "setTheme")]
+[JsonDerivedType(typeof(SetAnimationsCommand), "setAnimations")]
 [JsonDerivedType(typeof(ShutdownCommand), "shutdown")]
 public abstract class PreviewCommand
 {
@@ -262,6 +263,20 @@ public sealed class DefinitionCommand : PreviewCommand
     /// <summary>Local path of the edited document — lets in-document targets (named elements,
     /// document resource keys) report locations the IDE can open. Additive field.</summary>
     public string? FilePath { get; init; }
+}
+
+/// <summary>
+/// Enable or disable property animations (the "play/pause" toggle). Disabled is the design-surface
+/// rest posture — finite animations snap to their end, perpetual ones (a marquee, an indeterminate
+/// progress bar) retract to their base; a fresh <c>frame</c> shows that snapped rest. Enabling is
+/// PROSPECTIVE: the framework only runs animations that begin while enabled, so the caller sends this
+/// with <see cref="Enabled"/> true and then re-issues <c>loadXaml</c> to re-instantiate the tree
+/// (animations then begin running from the start), streaming <c>advanceTime</c> to drive the motion.
+/// Timer-driven content (UITimer) is unaffected by this toggle either way.
+/// </summary>
+public sealed class SetAnimationsCommand : PreviewCommand
+{
+    public required bool Enabled { get; init; }
 }
 
 /// <summary>Orderly shutdown; the host exits after acknowledging with a final <c>log</c> event.</summary>

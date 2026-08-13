@@ -199,6 +199,17 @@ data class SetThemeCommand(
     override val type: String = "setTheme"
 }
 
+/**
+ * Enable or disable property animations (play/pause). Disabled is the design-surface rest posture
+ * (animations snapped). Enabling is prospective — the host only runs animations begun while enabled —
+ * so the caller sends this with [enabled] true and then re-issues loadXaml to re-instantiate the tree.
+ */
+data class SetAnimationsCommand(
+    val enabled: Boolean,
+) : PreviewerCommand {
+    override val type: String = "setAnimations"
+}
+
 class ShutdownCommand : PreviewerCommand {
     override val type: String = "shutdown"
 }

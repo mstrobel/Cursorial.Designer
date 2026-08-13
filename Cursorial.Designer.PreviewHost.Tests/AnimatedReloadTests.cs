@@ -230,3 +230,58 @@ public class DesignSurfaceAnimationPostureTests : IDisposable
             $"Reload of the animated document took {stall.ElapsedMilliseconds} ms under the disabled-animations posture.");
     }
 }
+
+/// <summary>
+/// The play/pause toggle (setAnimations, task #27). Production sessions start snapped; enabling
+/// animations is PROSPECTIVE — the scheduler starts only animations begun while enabled — so the
+/// editor pairs setAnimations(true) with a reload to re-instantiate the tree. This pins that a
+/// perpetual marquee then advances under advanceTime, and that disabling snaps it back to base.
+/// </summary>
+public class PlayModeAnimationTests : IDisposable
+{
+    private readonly List<PreviewEvent> _events = [];
+    private readonly PreviewSession _session; // production posture — animations disabled at init
+
+    public PlayModeAnimationTests() => _session = new PreviewSession(_events.Add);
+
+    public void Dispose() => _session.Dispose();
+
+    private void Load(string xaml, long id) => _session.Execute(new LoadXamlCommand
+    {
+        Id = id,
+        Xaml = xaml,
+        Assemblies = [typeof(AnimatedShimmerProbe).Assembly.Location],
+    });
+
+    [Fact]
+    public void SetAnimations_true_then_reload_runs_the_marquee_and_false_snaps_it()
+    {
+        _session.Execute(new InitializeCommand { ProtocolVersion = 1, Columns = 80, Rows = 24 });
+
+        // Snapped by default: the perpetual Phase animation retracts at Begin.
+        Load(AnimatedReloadTests.Document(" "), id: 1);
+        Assert.Equal(0.0, AnimatedShimmerProbe.LastBrush!.Phase);
+
+        // Play: lift the gate, then reload so the animation begins WHILE enabled and runs.
+        _session.Execute(new SetAnimationsCommand { Enabled = true });
+        Load(AnimatedReloadTests.Document(" "), id: 2);
+        var running = AnimatedShimmerProbe.LastBrush!;
+
+        var beforeTick = _events.Count;
+        _session.Execute(new AdvanceTimeCommand { Milliseconds = 250 });
+        Assert.NotEqual(0.0, running.Phase);                          // the marquee advances (~0.25 of a 1 s cycle)
+        Assert.Contains(_events.Skip(beforeTick), e => e is FrameEvent); // and the motion emits frames
+
+        // Pause: disabling collapses the running animation back to its base at the settle.
+        _session.Execute(new SetAnimationsCommand { Enabled = false });
+        Assert.Equal(0.0, running.Phase);
+    }
+
+    [Fact]
+    public void SetAnimations_before_initialize_is_dropped_not_fatal()
+    {
+        _session.Execute(new SetAnimationsCommand { Enabled = true });
+        Assert.DoesNotContain(_events, e => e is ErrorEvent);
+        Assert.Contains(_events, e => e is LogEvent { Level: "debug" });
+    }
+}

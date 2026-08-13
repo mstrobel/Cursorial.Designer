@@ -208,7 +208,7 @@ internal sealed class PreviewSession : IDisposable
             case LoadXamlCommand load:
                 LoadXaml(load);
                 break;
-            case PointerCommand or KeyCommand or TextCommand or AdvanceTimeCommand or ResizeCommand when _host is null:
+            case PointerCommand or KeyCommand or TextCommand or AdvanceTimeCommand or ResizeCommand or SetAnimationsCommand when _host is null:
                 // Input racing a (re)initialize: transient by nature — the user clicked while the
                 // host was restarting. Dropping it beats tearing down the fresh session.
                 _emit(new LogEvent { Level = "debug", Message = $"Dropped '{command.GetType().Name}' that arrived before 'initialize'." });
@@ -278,6 +278,19 @@ internal sealed class PreviewSession : IDisposable
             case SetThemeCommand theme:
                 ApplyTheme(Host(command).Application, theme.ThemeBase, theme.ColorTier);
                 SettleAndEmitFrame();
+                break;
+            case SetAnimationsCommand setAnimations:
+                _ = Host(command);
+                AnimationScheduler.Current.AnimationsEnabled = setAnimations.Enabled;
+                // Enabling is PROSPECTIVE — the framework starts only animations that begin while
+                // enabled (StartInstance, §9.7), so the current tree's already-retracted animations
+                // stay put; the caller re-issues loadXaml to re-instantiate and actually run them.
+                // Nothing to settle here, just re-emit. Disabling collapses running animations to the
+                // design-surface rest at the next tick — settle so the frame shows that snapped state.
+                if (setAnimations.Enabled)
+                    EmitFrame();
+                else
+                    SettleAndEmitFrame();
                 break;
             default:
                 _emit(new ErrorEvent { ReplyTo = command.Id, Message = $"Unhandled command type '{command.GetType().Name}'." });

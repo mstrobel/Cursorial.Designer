@@ -30,6 +30,7 @@ import dev.cursorial.designer.CursorialDesignerIcons
 import dev.cursorial.designer.protocol.DescribeElementCommand
 import dev.cursorial.designer.protocol.GetPropertiesCommand
 import dev.cursorial.designer.protocol.SampleCellCommand
+import dev.cursorial.designer.protocol.SetAnimationsCommand
 import dev.cursorial.designer.protocol.SetThemeCommand
 import dev.cursorial.designer.protocol.DiagnosticsEvent
 import dev.cursorial.designer.protocol.ErrorEvent
@@ -427,6 +428,10 @@ class CursorialPreviewEditor(
             themeBase = themeBase,
             colorTier = colorTier,
         ))
+        // A restart while "playing" (rebuild during play) must resume with property animations on:
+        // the fresh host starts in the snapped posture, so re-lift the gate before loadXaml so the
+        // re-instantiated tree begins its animations running.
+        if (playTimer.isRunning) process.sendCommand(SetAnimationsCommand(enabled = true))
         sendLoadXaml()
         // Nudge the host to produce a first frame even for purely animation-driven UIs.
         process.sendCommand(AdvanceTimeCommand(0))
@@ -674,7 +679,18 @@ class CursorialPreviewEditor(
                 override fun getActionUpdateThread() = ActionUpdateThread.EDT
                 override fun isSelected(e: AnActionEvent) = playTimer.isRunning
                 override fun setSelected(e: AnActionEvent, state: Boolean) {
-                    if (state) playTimer.start() else playTimer.stop()
+                    if (state) {
+                        // Enabling is prospective — the host runs only animations begun while enabled —
+                        // so lift the gate, then reload to re-instantiate the tree (property animations
+                        // then begin running from the start); the timer streams time to drive them.
+                        hostProcess?.sendCommand(SetAnimationsCommand(enabled = true))
+                        sendLoadXaml()
+                        playTimer.start()
+                    } else {
+                        playTimer.stop()
+                        // Snap back to the design-surface rest: running animations retract to base.
+                        hostProcess?.sendCommand(SetAnimationsCommand(enabled = false))
+                    }
                 }
                 override fun update(e: AnActionEvent) {
                     super.update(e)
