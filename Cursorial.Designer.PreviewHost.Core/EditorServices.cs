@@ -331,12 +331,35 @@ internal static partial class EditorServices
                         // attribute just like a property, so it stays in the list — but it earns the
                         // "event" kind (via XamlMember.IsEvent) so the IDE icons it apart from a real
                         // property rather than showing the property glyph.
+                        // The element's OWN members (declared on, or AddOwner'd onto, its exact type — the
+                        // latter reflection alone can't see) are tagged so the plugin ranks them in the
+                        // middle band, above inherited base members. Probed through the optional seam;
+                        // absent ⇒ nothing is tagged and every member ranks in the alphabetical body.
+                        var ownMembers = provider is IXamlOwnMemberProvider om
+                            ? new HashSet<string>(om.GetOwnMemberNames(type.ClrType), StringComparer.Ordinal)
+                            : null;
+
                         foreach (var member in provider.GetKnownMemberNames(type.ClrType))
+                        {
+                            var xamlMember = type.TryGetMember(member);
+
+                            // A content CONTAINER (Style.Setters, StackPanel.Children, or a ResourceDictionary
+                            // like Button.Resources) is a known, settable member — but only in property-ELEMENT
+                            // form; it never authors as an attribute. Skip it here. ItemTypeOf catches both
+                            // arms: IList/ICollection<> collections AND dictionary-shaped IEnumerable<KVP>
+                            // holders like ResourceDictionary. Surfaced once the framework began admitting
+                            // read-only content collections and dictionaries as settable members — the same
+                            // members the property-element path INCLUDES, this path excludes.
+                            if (xamlMember?.ValueType.UnderlyingSystemType is { } vt && ItemTypeOf(vt) is not null)
+                                continue;
+
                             items.Add(new CompletionItemInfo
                             {
                                 Text = member,
-                                Kind = type.TryGetMember(member)?.IsEvent == true ? "event" : "attribute",
+                                Kind = xamlMember?.IsEvent == true ? "event" : "attribute",
+                                OwnMember = ownMembers?.Contains(member) == true ? true : null,
                             });
+                        }
                     }
                 }
 

@@ -72,7 +72,7 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
                 val matched = sorted.withPrefixMatcher(text.subSequence(prefixStart, offset).toString())
 
                 for (item in completions.items)
-                    matched.addElement(lookup(item.text, item.kind, item.detail, item.insert, item.caret, item.parentContext))
+                    matched.addElement(lookup(item.text, item.kind, item.detail, item.insert, item.caret, item.parentContext, item.ownMember))
 
                 // We are the authority for Cursorial XAML: the language service answers from the
                 // real parser + metadata providers. Stop the pipeline so the platform's default
@@ -85,7 +85,7 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
         })
     }
 
-    private fun lookup(text: String, kind: String?, detail: String?, insert: String?, caret: Int? = null, parentContext: Boolean = false): LookupElement {
+    private fun lookup(text: String, kind: String?, detail: String?, insert: String?, caret: Int? = null, parentContext: Boolean = false, ownMember: Boolean = false): LookupElement {
         // When insert differs from the display text (e.g. {x:Static …} references), the inserted
         // string is the element's payload while the display text drives matching/presentation.
         var builder = if (insert != null)
@@ -117,12 +117,12 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
             else -> builder
         }
         // The sort band travels as user data so [ByBand] (which only sees the LookupElement) can read
-        // it. Band 0 = the parent's attached properties (parentContext) → lifted to the top; band 1 is
-        // RESERVED for the element's OWN declared/AddOwner'd members and awaits a framework per-member
-        // provenance query (task #28 follow-up) — until the host tags those, none land there; band 2 =
-        // everything else (inherited base members, non-parent attachables), the alphabetical body.
+        // it. Band 0 = the parent's attached properties (parentContext) → lifted to the top; band 1 =
+        // the element's OWN declared/AddOwner'd members (ownMember, from the framework provenance query)
+        // → the middle; band 2 = everything else (inherited base members, non-parent attachables), the
+        // alphabetical body. parentContext wins over ownMember when a candidate is somehow both.
         val element: LookupElement = builder
-        element.putUserData(BAND_KEY, if (parentContext) 0 else 2)
+        element.putUserData(BAND_KEY, if (parentContext) 0 else if (ownMember) 1 else 2)
         return element
     }
 

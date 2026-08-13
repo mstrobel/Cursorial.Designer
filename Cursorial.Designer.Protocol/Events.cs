@@ -255,6 +255,15 @@ public sealed class CompletionItemInfo
     public bool? ParentContext { get; init; }
 
     /// <summary>
+    /// True when this candidate is one of the element's OWN members — declared on, or AddOwner'd onto, the
+    /// element's exact type (e.g. <c>Content</c> on a <c>Button</c>, or <c>Foreground</c> AddOwner'd onto a
+    /// <c>TextBlock</c>), as opposed to a member merely inherited from a base type. The plugin's completion
+    /// sorter ranks these in the middle band, below parent-context attached properties and above the
+    /// alphabetical body. Omitted (null) otherwise. Additive, non-breaking.
+    /// </summary>
+    public bool? OwnMember { get; init; }
+
+    /// <summary>
     /// Text to insert when it differs from <see cref="Text"/> (which then serves as the display
     /// and match string) — e.g. resource keys display as <c>ThemeKeys.ElevationDesktop</c> but
     /// insert <c>{x:Static ThemeKeys.ElevationDesktop}</c>.

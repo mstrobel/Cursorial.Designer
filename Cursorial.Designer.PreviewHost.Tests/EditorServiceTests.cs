@@ -268,6 +268,62 @@ public class EditorServiceTests : IDisposable
         Assert.Contains(completions.Items, i => i is { Text: "x:Name", Kind: "attribute" });
     }
 
+    [Fact] // Task #28 band 2 (via the framework's own-member provenance seam) + task #31 (settable filter):
+    // the element's OWN members — declared on or AddOwner'd onto its exact type — are tagged OwnMember so
+    // the plugin ranks them in the middle band; members merely inherited from a base are not. And read-only
+    // computed properties (Bounds, DesiredSize, IsArrangeValid, …) no longer appear at all — the framework's
+    // settable-only GetKnownMemberNames drops them before they reach the host.
+    public void Complete_tags_own_members_and_excludes_read_only_properties()
+    {
+        _session.Execute(new CompleteCommand
+        {
+            Id = 5,
+            Xaml = $"<StackPanel {Xmlns}>\n    <TextBlock T\n</StackPanel>",
+            Line = 2,
+            Column = 17, // right after "T" (attribute-name region; "    <TextBlock T" is 16 chars)
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+
+        // TextBlock's own surface: Text is declared on it; Foreground is AddOwner'd onto it — both OwnMember.
+        Assert.Contains(completions.Items, i => i is { Text: "Text", OwnMember: true });
+        Assert.Contains(completions.Items, i => i is { Text: "Foreground", OwnMember: true });
+
+        // A member merely inherited from the UIElement base is NOT an own member of TextBlock.
+        var opacity = completions.Items.FirstOrDefault(i => i.Text == "Opacity");
+        if (opacity is not null)
+            Assert.True(opacity.OwnMember is not true, "Inherited Opacity must not be tagged OwnMember.");
+
+        // Read-only computed properties are gone entirely (task #31's settable filter, reaching the host).
+        Assert.DoesNotContain(completions.Items, i => i.Text is "Bounds" or "DesiredSize" or "IsArrangeValid"
+            or "IsFocused" or "IsPointerOver" or "LogicalParent" or "IsKeyboardFocusWithin");
+    }
+
+    [Fact] // Task #32 Bug 1 follow-up: the framework now admits read-only content collections
+    // (StackPanel.Children, Style.Setters) as settable members so they can be offered as property
+    // ELEMENTS — but a collection never authors as an ATTRIBUTE. Attribute-name completion must skip
+    // collection-typed members (the mirror of the property-element path's collection INCLUSION), while a
+    // scalar member on the same element still appears.
+    public void Complete_attribute_names_skip_content_collections()
+    {
+        _session.Execute(new CompleteCommand
+        {
+            Id = 6,
+            Xaml = $"<StackPanel {Xmlns}>\n    <StackPanel O\n</StackPanel>",
+            Line = 2,
+            Column = 18, // right after "O" (attribute-name region; "    <StackPanel O" is 17 chars)
+        });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+
+        // Children (UIElementCollection : IList<UIElement>) is a settable member but element-form only.
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Children", Kind: "attribute" });
+        // Resources (ResourceDictionary, IEnumerable<KeyValuePair>) is likewise element-form only.
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Resources", Kind: "attribute" });
+        // A scalar member on the same element is unaffected.
+        Assert.Contains(completions.Items, i => i is { Text: "Orientation", Kind: "attribute" });
+    }
+
     [Fact] // Routed events (Click, MouseDown, KeyDown…) stay in attribute-name completion — they author
     // as event-handler attributes — but carry the "event" kind so the IDE icons them apart from real
     // properties (task #29: they were showing the property icon).

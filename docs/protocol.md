@@ -137,7 +137,9 @@ exits on Escape — WPF-style.
    "insert":"{x:Static ThemeKeys.PanelBrush}"}]}  // insert: text to insert when it differs from
                                                   // the display/match text (additive field)
 // kind: element | attribute | event | attached | value. parentContext (additive bool, top-band lift) is
-// emitted only on parent-context attached properties. Both are additive — Version stays 1.
+// emitted only on parent-context attached properties. ownMember (additive bool) is emitted on the element's
+// OWN members — declared on or AddOwner'd onto its exact type — ranking them in the middle band, below
+// parent-context attached properties and above the alphabetical body. All additive — Version stays 1.
 
 {"type":"error","replyTo":null,"message":"…","detail":"…"}
 {"type":"log","level":"debug|info|warn|error","message":"…"}

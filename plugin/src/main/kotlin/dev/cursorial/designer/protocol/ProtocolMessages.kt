@@ -450,6 +450,12 @@ data class CompletionItem(
      * completion sorter lifts it to the top band. Absent/false otherwise. Additive protocol field.
      */
     val parentContext: Boolean = false,
+    /**
+     * True when this is one of the element's OWN members (declared or AddOwner'd on its exact type, not
+     * merely inherited): the sorter ranks it in the middle band, below parent-context attached
+     * properties and above the alphabetical body. Absent/false otherwise. Additive protocol field.
+     */
+    val ownMember: Boolean = false,
 )
 
 data class PropertiesEvent(
