@@ -437,7 +437,7 @@ data class CompletionsEvent(
 data class CompletionItem(
     /** Display/match text (also the inserted text when [insert] is null). */
     val text: String,
-    /** "element", "attribute", or "value" — drives icon and insert handling. */
+    /** "element", "attribute", "event", "attached", or "value" — drives icon and insert handling. */
     val kind: String?,
     /** Optional detail (declaring CLR namespace, enum type, "directive"). */
     val detail: String? = null,
@@ -445,6 +445,11 @@ data class CompletionItem(
     val insert: String? = null,
     /** Caret position within [insert] after insertion (e.g. inside a stub's closing brace). */
     val caret: Int? = null,
+    /**
+     * True when this is a PARENT-CONTEXT attached property (Grid.Column on a child of a Grid): the
+     * completion sorter lifts it to the top band. Absent/false otherwise. Additive protocol field.
+     */
+    val parentContext: Boolean = false,
 )
 
 data class PropertiesEvent(

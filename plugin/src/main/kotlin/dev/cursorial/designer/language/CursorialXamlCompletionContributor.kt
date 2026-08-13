@@ -14,6 +14,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.patterns.PlatformPatterns
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.util.Key
 import com.intellij.util.ProcessingContext
 import dev.cursorial.designer.editor.CursorialPreviewEditorProvider
 import icons.ReSharperIcons
@@ -27,6 +28,9 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
 
     private companion object {
         val logger = logger<CursorialXamlCompletionContributor>()
+
+        /** The completion sort band (0 = parent attached, 1 = own members [reserved], 2 = body). */
+        val BAND_KEY: Key<Int> = Key.create("cursorial.completionBand")
     }
 
     init {
@@ -60,16 +64,15 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
                 // Force a deterministic order: the platform's default sorter (Rider's ML relevance
                 // weigher) floats predicted-common members to the top and leaves the rest in the
                 // lexicographic tiebreaker, so a list we hand over pre-sorted still lands part-ordered.
-                // An empty relevance sorter weighed only by the bare member name overrides that — the
-                // items sort A→Z by the name without its `prefix:` and `Owner.` qualification, so
-                // Grid.Column files under "Column" and x:Name under "Name" (mirrors the host's NameOf).
-                // First-draft diagnostic: strict name order is trivial to eyeball; a shipped ordering
-                // would likely restore a relevance lift for context (e.g. parent attached properties).
-                val sorted = result.withRelevanceSorter(CompletionSorter.emptySorter().weigh(ByBareName))
+                // An empty relevance sorter overrides that with THREE BANDS, then A→Z within each band.
+                // [ByBand] is the primary weigher (added first ⇒ outermost classifier), [ByBareName]
+                // the tiebreaker: the platform's ComparingClassifier sorts each weigher ascending, so
+                // band 0 lands at the top and equal-band items fall back to the bare-name order.
+                val sorted = result.withRelevanceSorter(CompletionSorter.emptySorter().weigh(ByBand).weigh(ByBareName))
                 val matched = sorted.withPrefixMatcher(text.subSequence(prefixStart, offset).toString())
 
                 for (item in completions.items)
-                    matched.addElement(lookup(item.text, item.kind, item.detail, item.insert, item.caret))
+                    matched.addElement(lookup(item.text, item.kind, item.detail, item.insert, item.caret, item.parentContext))
 
                 // We are the authority for Cursorial XAML: the language service answers from the
                 // real parser + metadata providers. Stop the pipeline so the platform's default
@@ -82,7 +85,7 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
         })
     }
 
-    private fun lookup(text: String, kind: String?, detail: String?, insert: String?, caret: Int? = null): LookupElement {
+    private fun lookup(text: String, kind: String?, detail: String?, insert: String?, caret: Int? = null, parentContext: Boolean = false): LookupElement {
         // When insert differs from the display text (e.g. {x:Static …} references), the inserted
         // string is the element's payload while the display text drives matching/presentation.
         var builder = if (insert != null)
@@ -106,17 +109,41 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
             // platform AllIcons.Nodes has no event glyph (it is a Rider/.NET-only concept), so use
             // ReSharper's own event symbol icon — the same one Rider shows for a C# event.
             "event" -> builder.withIcon(ReSharperIcons.PsiSymbols.Event).withInsertHandler(AttributeInsertHandler)
+            // An attached property (Grid.Column) authors as an ="…" attribute too, so it keeps the
+            // attribute insert behavior; a distinct read/write-property glyph sets it apart from a
+            // plain own property.
+            "attached" -> builder.withIcon(AllIcons.Nodes.PropertyReadWrite).withInsertHandler(AttributeInsertHandler)
             "value" -> builder.withIcon(AllIcons.Nodes.Enum)
             else -> builder
         }
-        return builder
+        // The sort band travels as user data so [ByBand] (which only sees the LookupElement) can read
+        // it. Band 0 = the parent's attached properties (parentContext) → lifted to the top; band 1 is
+        // RESERVED for the element's OWN declared/AddOwner'd members and awaits a framework per-member
+        // provenance query (task #28 follow-up) — until the host tags those, none land there; band 2 =
+        // everything else (inherited base members, non-parent attachables), the alphabetical body.
+        val element: LookupElement = builder
+        element.putUserData(BAND_KEY, if (parentContext) 0 else 2)
+        return element
     }
 
     /**
-     * Sorts by the bare member name — the `prefix:` and `Owner.` qualification stripped — so the
-     * completion list reads strictly A→Z (mirrors the host's NameOf). Kind-agnostic by design: it
-     * works from the lookup string, and value completions (enum members) carry neither ':' nor '.',
-     * so they sort by their own text unchanged.
+     * The PRIMARY (three-band) weigher. Bands, top-first: 0 = the element's PARENT's attached
+     * properties (Grid.Column inside a Grid — the host's `parentContext` flag); 1 = RESERVED for the
+     * element's OWN declared/AddOwner'd members (a framework per-member provenance query is the
+     * pending task #28 follow-up — until it lands the host tags nothing here); 2 = everything else
+     * (inherited base members, non-parent attachables). The band rides on the lookup element as user
+     * data (set in [lookup]); the platform's ComparingClassifier sorts ascending, so band 0 tops the
+     * list. Within a band, [ByBareName] restores the A→Z order.
+     */
+    private object ByBand : LookupElementWeigher("cursorial.band") {
+        override fun weigh(element: LookupElement): Comparable<*> = element.getUserData(BAND_KEY) ?: 2
+    }
+
+    /**
+     * The tiebreaker within a band: sorts by the bare member name — the `prefix:` and `Owner.`
+     * qualification stripped — so each band reads A→Z (mirrors the host's NameOf). Kind-agnostic by
+     * design: it works from the lookup string, and value completions (enum members) carry neither ':'
+     * nor '.', so they sort by their own text unchanged.
      */
     private object ByBareName : LookupElementWeigher("cursorial.bareName") {
         override fun weigh(element: LookupElement): Comparable<*> = bareName(element.lookupString)

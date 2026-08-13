@@ -127,10 +127,17 @@ exits on Escape — WPF-style.
   {"text":"Button","kind":"element","detail":"Cursorial.UI.Controls"},
   {"text":"Content","kind":"attribute"},
   {"text":"MouseDown","kind":"event"},        // a routed/CLR event; inserts like an attribute, distinct icon
+  {"text":"Grid.Column","kind":"attached","detail":"attached","parentContext":true},
+                                              // an attached property (Owner.Property); inserts ="…" like an
+                                              // attribute, distinct icon. parentContext:true → the element's
+                                              // actual parent owns it (Grid.Column inside a Grid); the plugin
+                                              // sorter lifts these to the top band. Omitted when not.
   {"text":"Visible","kind":"value","detail":"Visibility"},
   {"text":"ThemeKeys.PanelBrush","kind":"value","detail":"Theme.PanelBrush",
    "insert":"{x:Static ThemeKeys.PanelBrush}"}]}  // insert: text to insert when it differs from
                                                   // the display/match text (additive field)
+// kind: element | attribute | event | attached | value. parentContext (additive bool, top-band lift) is
+// emitted only on parent-context attached properties. Both are additive — Version stays 1.
 
 {"type":"error","replyTo":null,"message":"…","detail":"…"}
 {"type":"log","level":"debug|info|warn|error","message":"…"}

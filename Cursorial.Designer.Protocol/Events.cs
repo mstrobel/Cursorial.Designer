@@ -237,13 +237,22 @@ public sealed class CompletionItemInfo
     /// <summary>The text to insert (may carry an xmlns prefix, e.g. <c>bars:Ribbon</c>).</summary>
     public required string Text { get; init; }
 
-    /// <summary><c>element</c>, <c>attribute</c>, <c>event</c>, or <c>value</c> — drives the IDE's icon and insert
-    /// handling. <c>event</c> is a routed/CLR event: it inserts like an <c>attribute</c> (an event-handler
-    /// attribute) but carries a distinct icon.</summary>
+    /// <summary><c>element</c>, <c>attribute</c>, <c>event</c>, <c>attached</c>, or <c>value</c> — drives the
+    /// IDE's icon and insert handling. <c>event</c> is a routed/CLR event and <c>attached</c> is an attached
+    /// property (<c>Grid.Column</c>): both insert like an <c>attribute</c> (an <c>="…"</c> attribute) but carry
+    /// a distinct icon.</summary>
     public required string Kind { get; init; }
 
     /// <summary>Optional detail shown alongside (e.g. the declaring CLR namespace, or the enum type).</summary>
     public string? Detail { get; init; }
+
+    /// <summary>
+    /// True when this candidate is a PARENT-CONTEXT attached property — an attached property whose owner is
+    /// (or is a base of) the element's actual parent, e.g. <c>Grid.Column</c> on a child of a <c>Grid</c>.
+    /// The plugin's completion sorter lifts these to the top band (most-relevant). Omitted (null) otherwise.
+    /// Additive, non-breaking: consumers that ignore it see the item ranked normally.
+    /// </summary>
+    public bool? ParentContext { get; init; }
 
     /// <summary>
     /// Text to insert when it differs from <see cref="Text"/> (which then serves as the display

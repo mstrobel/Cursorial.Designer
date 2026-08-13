@@ -391,8 +391,81 @@ public class EditorServiceTests : IDisposable
         var xaml = $"<DockPanel {Xmlns}>\n    <Button Do\n</DockPanel>";
         _session.Execute(new CompleteCommand { Id = 51, Xaml = xaml, Line = 2, Column = 15 });
 
+        // The parent DockPanel's attached property carries the "attached" kind and is tagged
+        // parent-context (band 1) so the plugin lifts it to the top.
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
-        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Kind: "attribute", Detail: "attached" });
+        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Kind: "attached", Detail: "attached", ParentContext: true });
+    }
+
+    [Fact] // BROADEN via the IXamlAttachablePropertyProvider seam: attached properties of ALL owners
+    // (not just the parent) are offered for the element's own type — Grid.Column on a child of a
+    // StackPanel, even though the parent is not a Grid — with the "attached" kind and NOT tagged
+    // parent-context (the parent doesn't own them).
+    public void Complete_broadens_attached_properties_via_the_seam()
+    {
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button \n</StackPanel>";
+        _session.Execute(new CompleteCommand { Id = 251, Xaml = xaml, Line = 2, Column = 13 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        // Owners in the default xmlns present BARE (Grid.Column, not c:Grid.Column).
+        Assert.Contains(completions.Items, i => i is { Text: "Grid.Column", Kind: "attached", Detail: "attached" });
+        Assert.Contains(completions.Items, i => i is { Text: "Canvas.Left", Kind: "attached" });
+        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Kind: "attached" });
+        // The parent is a StackPanel — none of these are its attached properties, so none is lifted.
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Grid.Column", ParentContext: true });
+        // The element's own settable members still surface (as plain attributes).
+        Assert.Contains(completions.Items, i => i is { Text: "Width", Kind: "attribute" });
+    }
+
+    [Fact] // RANK: the element's ACTUAL PARENT's attached properties are tagged parent-context so the
+    // plugin lifts them; a non-parent owner's attachables are broadened in but stay in the body.
+    public void Complete_tags_the_actual_parents_attached_as_parent_context()
+    {
+        var xaml = $"<Grid {Xmlns}>\n    <Button \n</Grid>";
+        _session.Execute(new CompleteCommand { Id = 252, Xaml = xaml, Line = 2, Column = 13 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        // Inside a Grid: Grid.* are parent-context (band 1).
+        Assert.Contains(completions.Items, i => i is { Text: "Grid.Column", Kind: "attached", ParentContext: true });
+        Assert.Contains(completions.Items, i => i is { Text: "Grid.Row", ParentContext: true });
+        // Canvas.* are broadened in but NOT parent-context — the parent isn't a Canvas.
+        Assert.Contains(completions.Items, i => i is { Text: "Canvas.Left", Kind: "attached" });
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Canvas.Left", ParentContext: true });
+    }
+
+    [Fact] // FILTER: an attribute already declared on the start tag — BEFORE or AFTER the caret — is
+    // dropped from completion; the attribute being typed at the caret is NOT (it isn't "set").
+    public void Complete_filters_already_set_attributes_before_and_after_caret()
+    {
+        // Width is set before the caret, Height after it; Content is the one being typed.
+        var xaml = $"<StackPanel {Xmlns}>\n    <Button Width=\"1\" Con Height=\"2\"/>\n</StackPanel>";
+        var line2 = "    <Button Width=\"1\" Con";
+        _session.Execute(new CompleteCommand { Id = 253, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.Contains(completions.Items, i => i is { Text: "Content", Kind: "attribute" }); // being typed, still offered
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Width");   // already set BEFORE the caret
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Height");  // already set AFTER the caret
+    }
+
+    [Fact] // FILTER: a property already declared as a nested <Owner.Property> child element is dropped —
+    // an OWN member (<Button.Content>) and an ATTACHED setter (<Grid.Row>) alike.
+    public void Complete_filters_nested_property_element_setters()
+    {
+        var xaml = $"<Grid {Xmlns}>\n" +
+                   "    <Button >\n" +
+                   "        <Button.Content>hi</Button.Content>\n" +
+                   "        <Grid.Row>1</Grid.Row>\n" +
+                   "    </Button>\n</Grid>";
+        var line2 = "    <Button ";
+        _session.Execute(new CompleteCommand { Id = 254, Xaml = xaml, Line = 2, Column = line2.Length + 1 });
+
+        var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Content");   // own member set as <Button.Content>
+        Assert.DoesNotContain(completions.Items, i => i.Text == "Grid.Row");  // attached set as <Grid.Row>
+        // Siblings of those setters are unaffected — still offered.
+        Assert.Contains(completions.Items, i => i.Text == "Width");
+        Assert.Contains(completions.Items, i => i is { Text: "Grid.Column", Kind: "attached" });
     }
 
     [Fact]
@@ -535,8 +608,11 @@ public class EditorServiceTests : IDisposable
         _session.Execute(new CompleteCommand { Id = 71, Xaml = xaml, Line = 4, Column = 15 });
 
         var completions = Assert.IsType<CompletionsEvent>(_events.Last(e => e is CompletionsEvent));
-        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Detail: "attached" });
-        Assert.DoesNotContain(completions.Items, i => i.Text == "Grid.Row");
+        // DockPanel is the real (uncommented) parent — its attached property is lifted.
+        Assert.Contains(completions.Items, i => i is { Text: "DockPanel.Dock", Detail: "attached", ParentContext: true });
+        // The broaden offers Grid.Row as a plain attachable, but the commented-out <Grid> must NOT be
+        // mistaken for the parent — so Grid.Row is never tagged parent-context here.
+        Assert.DoesNotContain(completions.Items, i => i is { Text: "Grid.Row", ParentContext: true });
     }
 
     [Fact]

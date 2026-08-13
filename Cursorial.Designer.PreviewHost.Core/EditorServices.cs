@@ -342,9 +342,12 @@ internal static partial class EditorServices
 
                 // Attached properties. Explicit owner ("Grid.Ro") completes that owner's attached
                 // set with BARE names — owners may be STATIC classes, so resolution never goes
-                // through the instantiability filter. Without a dot, the enclosing parent's
-                // attached properties are offered qualified (inside a Grid, a child naturally
-                // wants Grid.Row, and nothing of the qualifier is in the buffer yet).
+                // through the instantiability filter. Without a dot, BROADEN via the metadata seam:
+                // every attached property declarable on THIS element type (Grid.Column, Canvas.Left,
+                // DockPanel.Dock, …), qualified Owner.Property with the owner's xmlns prefix resolved
+                // from the document — and the element's ACTUAL PARENT's attached set tagged
+                // parent-context so the plugin lifts it (inside a Grid, a child naturally wants
+                // Grid.Row near the top, and nothing of the qualifier is in the buffer yet).
                 if (attachedDot > 0)
                 {
                     var ownerName = context.Prefix[..attachedDot];
@@ -352,17 +355,12 @@ internal static partial class EditorServices
                     if (owner is not null)
                     {
                         foreach (var attached in AttachedPropertyNames(owner))
-                            items.Add(new CompletionItemInfo { Text = attached, Kind = "attribute", Detail = "attached" });
+                            items.Add(new CompletionItemInfo { Text = attached, Kind = "attached", Detail = "attached" });
                     }
                 }
-                else if (typedNsPrefix is null && context.ParentElement is { } parentName && !parentName.Contains('.'))
+                else if (typedNsPrefix is null)
                 {
-                    var parent = ResolveElement(parentName, namespaces, provider)?.ClrType.UnderlyingSystemType;
-                    if (parent is not null)
-                    {
-                        foreach (var attached in AttachedPropertyNames(parent))
-                            items.Add(new CompletionItemInfo { Text = $"{parentName}.{attached}", Kind = "attribute", Detail = "attached" });
-                    }
+                    items.AddRange(AttachableItems(context.ElementName, context.ParentElement, namespaces, provider));
                 }
 
                 // The intrinsics directives, under whatever prefix maps to them (conventionally x).
@@ -405,6 +403,19 @@ internal static partial class EditorServices
                             Detail = "markup compatibility",
                         });
                     }
+                }
+
+                // FILTER already-set: drop any property/attribute already declared on this element —
+                // both attribute syntax on the start tag (before AND after the caret, minus the one
+                // being typed) and nested <Owner.Property> property-element setters. An own member is
+                // keyed bare (Content), an attached property qualified as authored (Grid.Row); the
+                // explicit-owner dotted case ("Grid.") re-qualifies each bare item to test it.
+                var declared = DeclaredOnElement(xaml, offset, context.ElementName);
+                if (declared.Count > 0)
+                {
+                    var ownerQualifier = attachedDot > 0 ? context.Prefix[..attachedDot] : null;
+                    items.RemoveAll(i => declared.Contains(i.Text)
+                        || (ownerQualifier is not null && declared.Contains($"{ownerQualifier}.{i.Text}")));
                 }
 
                 break;
@@ -708,6 +719,203 @@ internal static partial class EditorServices
                             && f.FieldType.GetGenericTypeDefinition() == typeof(AttachedProperty<>))
                 .Select(f => f.Name[..^"Property".Length]))
             .Distinct(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The BROADENED attached-property completion for a plain (undotted, unprefixed) attribute-name
+    /// position: every attached property declarable on <paramref name="elementName"/>'s type, sourced
+    /// through the optional <see cref="IXamlAttachablePropertyProvider"/> seam and presented as
+    /// <c>Owner.Property</c> with the owner's xmlns prefix resolved from the document. The element's
+    /// ACTUAL PARENT's attached properties are tagged <see cref="CompletionItemInfo.ParentContext"/>
+    /// so the plugin's sorter lifts them to the top band. A provider that does not implement the seam
+    /// (or an unresolvable element) falls back to the parent's attached set only — the pre-seam
+    /// behavior — so completion never regresses.
+    /// </summary>
+    private static List<CompletionItemInfo> AttachableItems(
+        string elementName, string? parentElement, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var items = new List<CompletionItemInfo>();
+        var current = ResolveElement(elementName, namespaces, provider);
+
+        // The element's actual parent CLR type — its (or a base's) attached properties are parent-context.
+        var parentClr = parentElement is { } parent && !parent.Contains('.')
+            ? ResolveElement(parent, namespaces, provider)?.ClrType.UnderlyingSystemType
+            : null;
+
+        if (provider is IXamlAttachablePropertyProvider ap && current is not null)
+        {
+            // The registry only lists owners whose static constructor has run; force every known type
+            // to resolve so all attachable owners (Grid, Canvas, DockPanel, …) have registered.
+            WarmTypes(namespaces, provider);
+
+            var clrPrefix = ClrNamespacePrefixMap(namespaces, provider);
+            foreach (var member in ap.GetAttachableMembers(current.ClrType))
+            {
+                // The owner's CLR namespace joins back to an xmlns prefix (default xmlns → bare
+                // "Grid.Column"; a non-default owner → "prefix:Owner.Property"). An owner whose
+                // namespace no document prefix reaches is unusable here — skip it.
+                if (!clrPrefix.TryGetValue(member.OwnerNamespace, out var ownerPrefix))
+                    continue;
+
+                var ownerClr = namespaces.TryGetValue(ownerPrefix, out var ownerUri)
+                    ? SafeResolve(provider, ownerUri, member.OwnerName)?.ClrType.UnderlyingSystemType
+                    : null;
+                var isParent = parentClr is not null && ownerClr is not null && ownerClr.IsAssignableFrom(parentClr);
+
+                items.Add(new CompletionItemInfo
+                {
+                    Text = ownerPrefix.Length == 0 ? member.QualifiedName : $"{ownerPrefix}:{member.QualifiedName}",
+                    Kind = "attached",
+                    Detail = "attached",
+                    ParentContext = isParent ? true : null,
+                });
+            }
+
+            return items.DistinctBy(i => i.Text).ToList();
+        }
+
+        // Fallback: the enclosing parent's attached properties only (a provider without the seam, or
+        // an element whose type will not resolve). These are the parent's, so all parent-context.
+        if (parentClr is not null && parentElement is { } parentName)
+        {
+            foreach (var attached in AttachedPropertyNames(parentClr))
+                items.Add(new CompletionItemInfo { Text = $"{parentName}.{attached}", Kind = "attached", Detail = "attached", ParentContext = true });
+        }
+
+        return items;
+    }
+
+    /// <summary>Force every known type across the document's namespaces to resolve — running its (and
+    /// its bases') static constructors so registration-time metadata (attached-property owners,
+    /// pseudo-class mappings) is populated. Provider-cached, so it is a one-time cost per type.</summary>
+    private static void WarmTypes(Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        foreach (var (_, uri) in namespaces)
+        {
+            foreach (var name in provider.GetKnownTypeNames(uri))
+                SafeResolve(provider, uri, name);
+        }
+    }
+
+    /// <summary>
+    /// A CLR-namespace → document-xmlns-prefix map, the join used to prefix an attached owner surfaced
+    /// by <see cref="XamlAttachableMember.OwnerNamespace"/>. The default (empty) prefix wins, then the
+    /// shortest — so an owner in the default xmlns presents BARE (<c>Grid.Column</c>) and one bound
+    /// only to a named prefix presents qualified (<c>c:Grid.Column</c>).
+    /// </summary>
+    private static Dictionary<string, string> ClrNamespacePrefixMap(Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (prefix, uri) in namespaces
+                     .OrderBy(n => n.Key.Length == 0 ? 0 : 1)
+                     .ThenBy(n => n.Key.Length)
+                     .ThenBy(n => n.Key, StringComparer.Ordinal))
+        {
+            foreach (var clrNamespace in provider.GetClrNamespaces(uri))
+                map.TryAdd(clrNamespace, prefix);
+        }
+
+        return map;
+    }
+
+    [GeneratedRegex("([A-Za-z_][\\w.:-]*)\\s*=\\s*\"[^\"]*\"")]
+    private static partial Regex TagAttribute();
+
+    /// <summary>
+    /// The property/attribute names ALREADY declared on the element whose start tag the caret sits in:
+    /// (a) attribute syntax across the whole start tag — before AND after the caret — minus the one
+    /// being typed at the caret, and (b) nested <c>&lt;Owner.Property&gt;</c> property-element setters
+    /// among the element's children. An OWN member (owner == the element) is keyed bare (<c>Content</c>)
+    /// to match an unqualified completion item; an ATTACHED setter (owner != the element) is keyed by
+    /// its authored qualified form (<c>Grid.Row</c>). Operates on the already-blanked text.
+    /// </summary>
+    private static HashSet<string> DeclaredOnElement(string blanked, int caret, string elementName)
+    {
+        var declared = new HashSet<string>(StringComparer.Ordinal);
+        caret = Math.Clamp(caret, 0, blanked.Length);
+        var open = blanked.LastIndexOf('<', Math.Max(0, caret - 1));
+        if (open < 0)
+            return declared;
+
+        // The start tag's close is the first unquoted '>' at/after the open (may be absent mid-edit).
+        var close = -1;
+        var quoted = false;
+        for (var i = open + 1; i < blanked.Length; i++)
+        {
+            var c = blanked[i];
+            if (c == '"')
+                quoted = !quoted;
+            else if (c == '>' && !quoted)
+            {
+                close = i;
+                break;
+            }
+        }
+
+        var tagText = blanked[open..(close < 0 ? blanked.Length : close)];
+
+        // (a) Every name="value" on the start tag, excluding the attribute the caret is inside.
+        foreach (Match match in TagAttribute().Matches(tagText))
+        {
+            var absoluteStart = open + match.Index;
+            if (caret >= absoluteStart && caret <= absoluteStart + match.Length)
+                continue; // the attribute being edited at the caret — do not treat it as already-set
+
+            AddDeclaredKey(match.Groups[1].Value, elementName, declared);
+        }
+
+        // (b) Nested <Owner.Property> property-element setters among the element's children.
+        if (close >= 0 && close > 0 && blanked[close - 1] != '/')
+            CollectNestedSetters(blanked, close + 1, elementName, declared);
+
+        return declared;
+    }
+
+    /// <summary>Records the element's direct <c>&lt;Owner.Property&gt;</c> property-element children as
+    /// already-declared setters, walking tag depth from just past the start tag to the element's own
+    /// close (a tolerant scan over possibly-malformed mid-edit text).</summary>
+    private static void CollectNestedSetters(string blanked, int from, string elementName, HashSet<string> declared)
+    {
+        var depth = 0;
+        foreach (Match match in TagToken().Matches(blanked[Math.Clamp(from, 0, blanked.Length)..]))
+        {
+            var closing = match.Groups[1].Value.Length > 0;
+            if (closing)
+            {
+                if (depth == 0)
+                    return; // the element's own end tag — stop before sibling content
+                depth--;
+                continue;
+            }
+
+            var name = match.Groups[2].Value;
+            if (depth == 0 && name.Contains('.'))
+                AddDeclaredKey(name, elementName, declared);
+
+            if (match.Groups[4].Value.Length == 0) // not self-closed
+                depth++;
+        }
+    }
+
+    /// <summary>Keys a declared attribute/property name for filtering: an OWN member (owner local name ==
+    /// the element's local name) reduces to the bare member; anything else keeps its authored form.</summary>
+    private static void AddDeclaredKey(string name, string elementName, HashSet<string> declared)
+    {
+        declared.Add(name);
+        var dot = name.LastIndexOf('.');
+        if (dot <= 0)
+            return;
+
+        var owner = name[..dot];
+        var member = name[(dot + 1)..];
+        if (string.Equals(LocalName(owner), LocalName(elementName), StringComparison.Ordinal))
+            declared.Add(member); // <Button.Content> on a Button → the bare "Content" completion item
+    }
+
+    private static string LocalName(string qualified)
+    {
+        var colon = qualified.IndexOf(':');
+        return colon >= 0 ? qualified[(colon + 1)..] : qualified;
+    }
 
     private static XamlType? ResolveElement(string elementName, Dictionary<string, string> namespaces, IXamlTypeMetadataProvider provider)
     {
