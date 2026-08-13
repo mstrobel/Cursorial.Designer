@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.util.ui.GraphicsUtil
 import dev.cursorial.designer.protocol.CellRect
+import dev.cursorial.designer.protocol.FragmentInfo
 import dev.cursorial.designer.protocol.FrameEvent
 import dev.cursorial.designer.protocol.PointerButton
 import dev.cursorial.designer.protocol.PointerKind
@@ -14,6 +15,10 @@ import java.awt.Font
 import java.awt.FontMetrics
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.image.BufferedImage
+import java.io.ByteArrayInputStream
+import java.util.Base64
+import javax.imageio.ImageIO
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.InputEvent
@@ -76,6 +81,10 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
     private var rowRuns: MutableList<List<ResolvedRun>> = mutableListOf()
     private var cursor: dev.cursorial.designer.protocol.CursorInfo? = null
     private var selection: CellRect? = null
+
+    // Out-of-band overlays (scaled text, images), decoded once at ingest. A full frame replaces the
+    // set; a delta replaces it only when it carries `fragments` (null = keep the prior set).
+    private var fragments: List<ResolvedFragment> = emptyList()
 
     private var lastNotifiedColumns = -1
     private var lastNotifiedRows = -1
@@ -214,6 +223,12 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
             cursor = newFrame.cursor
             for (row in listOfNotNull(previousCursorRow, cursor?.row))
                 repaint(0, row * metrics.cellHeight, width, metrics.cellHeight)
+            // A delta carries `fragments` only when the set changed; null means keep the prior set.
+            // When it changed, overlays can move/resize arbitrarily, so repaint the whole surface.
+            if (newFrame.fragments != null) {
+                fragments = resolveFragments(newFrame.fragments)
+                repaint()
+            }
             return
         }
 
@@ -221,8 +236,44 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
         gridRows = newFrame.rows
         rowRuns = newFrame.lines.map(::resolveRuns).toMutableList()
         cursor = newFrame.cursor
+        fragments = resolveFragments(newFrame.fragments)
         revalidate()
         repaint()
+    }
+
+    /** Decodes each wire fragment once (images to a BufferedImage, styles to Colors) for painting. */
+    private fun resolveFragments(infos: List<FragmentInfo>?): List<ResolvedFragment> {
+        if (infos.isNullOrEmpty()) return emptyList()
+        return infos.map { info ->
+            when (info.kind) {
+                "sizedText" -> ResolvedFragment(
+                    column = info.column, row = info.row, columns = info.columns, rows = info.rows,
+                    scale = (info.scale ?: 1).coerceAtLeast(1),
+                    lines = info.lines.orEmpty(),
+                    fg = parseColor(info.style?.fg),
+                    bg = parseColor(info.style?.bg),
+                )
+                else -> { // "image"
+                    val decoded = decodeImage(info)
+                    ResolvedFragment(
+                        column = info.column, row = info.row, columns = info.columns, rows = info.rows,
+                        image = decoded,
+                        // A placeholder label for what we can't decode (sixel, or a decode failure).
+                        placeholder = if (decoded == null) (info.format ?: "image").uppercase() else null,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun decodeImage(info: FragmentInfo): BufferedImage? {
+        val data = info.data ?: return null
+        if (info.format !in DECODABLE_IMAGE_FORMATS) return null
+        return try {
+            ImageIO.read(ByteArrayInputStream(Base64.getDecoder().decode(data)))
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /** Shows (or clears, with null) the selection-rectangle overlay from a hit-test result. */
@@ -326,10 +377,48 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
                 }
             }
 
+            paintFragments(g2, metrics, defaultFg)
             paintCursor(g2, metrics, defaultFg)
             paintSelection(g2, metrics)
         } finally {
             g2.dispose()
+        }
+    }
+
+    /** Overlays scaled text and images on the cells they cover (which arrive background-only). */
+    private fun paintFragments(g2: Graphics2D, metrics: CellMetrics, defaultFg: Color) {
+        if (fragments.isEmpty()) return
+        val cw = metrics.cellWidth
+        val ch = metrics.cellHeight
+
+        for (frag in fragments) {
+            val x = frag.column * cw
+            val y = frag.row * ch
+            val w = frag.columns * cw
+            val h = frag.rows * ch
+
+            if (frag.image != null || frag.placeholder != null) {
+                if (frag.image != null) {
+                    g2.drawImage(frag.image, x, y, w, h, null)
+                } else {
+                    // Undecodable (Sixel / decode failure): a labeled placeholder at the footprint.
+                    g2.color = blend(defaultFg, if (lightBase) LIGHT_DEFAULT_BG else DARK_DEFAULT_BG)
+                    g2.drawRect(x, y, w - 1, h - 1)
+                    g2.font = metrics.plain
+                    frag.placeholder?.let { g2.drawString(it, x + 2, y + metrics.ascent) }
+                }
+                continue
+            }
+
+            // Scaled text (OSC 66): draw each line at `scale`× the cell font; one line per scaled row.
+            frag.bg?.let { g2.color = it; g2.fillRect(x, y, w, h) }
+            val scaledFont = metrics.plain.deriveFont(metrics.plain.size2D * frag.scale)
+            g2.font = scaledFont
+            g2.color = frag.fg ?: defaultFg
+            val scaledAscent = g2.getFontMetrics(scaledFont).ascent
+            val lineHeight = ch * frag.scale
+            for ((i, line) in frag.lines.withIndex())
+                g2.drawString(line, x, y + i * lineHeight + scaledAscent)
         }
     }
 
@@ -481,6 +570,24 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
         val style: ResolvedStyle?,
     )
 
+    /**
+     * An overlay fragment, decoded at ingest. Anchored at ([column], [row]) over [columns]×[rows]
+     * cells. Either scaled text ([lines]/[scale]/[fg]/[bg]) or an image ([image], or [placeholder]
+     * text when it can't be decoded).
+     */
+    private data class ResolvedFragment(
+        val column: Int,
+        val row: Int,
+        val columns: Int,
+        val rows: Int,
+        val scale: Int = 1,
+        val lines: List<String> = emptyList(),
+        val fg: Color? = null,
+        val bg: Color? = null,
+        val image: BufferedImage? = null,
+        val placeholder: String? = null,
+    )
+
     private data class ResolvedStyle(
         /** null = terminal default (theme foreground). */
         val fg: Color?,
@@ -526,6 +633,9 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
 
         const val DEFAULT_COLUMNS = 80
         const val DEFAULT_ROWS = 24
+
+        /** Image fragment formats the IDE can decode directly (Sixel's payload it cannot). */
+        private val DECODABLE_IMAGE_FORMATS = setOf("png", "jpeg", "gif")
 
         private val SELECTION_FILL = Color(64, 128, 255, 48)
         private val SELECTION_BORDER = Color(64, 128, 255, 192)

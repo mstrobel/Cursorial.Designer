@@ -276,7 +276,34 @@ data class FrameEvent(
     /** True = row-level delta: only [changed] rows differ; style indices reference THIS event's [styles]. */
     val delta: Boolean? = null,
     val changed: List<ChangedRow>? = null,
+    /**
+     * Out-of-band overlays (scaled text, images) the cell grid can't express. On a full frame this is
+     * the authoritative set (empty/absent = none). On a delta it is present ONLY when the set changed;
+     * absent on a delta means "keep the prior fragments".
+     */
+    val fragments: List<FragmentInfo>? = null,
 ) : PreviewerEvent
+
+/** One positioned overlay fragment. [kind] selects which fields apply: "sizedText" or "image". */
+data class FragmentInfo(
+    val kind: String,
+    val column: Int,
+    val row: Int,
+    val columns: Int,
+    val rows: Int,
+    // sizedText
+    val scale: Int? = null,
+    val numerator: Int? = null,
+    val denominator: Int? = null,
+    val vAlign: Int? = null,
+    val hAlign: Int? = null,
+    val lines: List<String>? = null,
+    val style: StyleDefinition? = null,
+    // image
+    /** "png" / "jpeg" / "gif" (decodable base64 in [data]); "sixel" = placeholder, no data. */
+    val format: String? = null,
+    val data: String? = null,
+)
 
 /** One changed row of a delta frame. */
 data class ChangedRow(
