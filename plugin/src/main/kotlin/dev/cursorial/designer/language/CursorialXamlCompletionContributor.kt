@@ -57,6 +57,14 @@ class CursorialXamlCompletionContributor : CompletionContributor() {
 
                 for (item in completions.items)
                     matched.addElement(lookup(item.text, item.kind, item.detail, item.insert, item.caret))
+
+                // We are the authority for Cursorial XAML: the language service answers from the
+                // real parser + metadata providers. Stop the pipeline so the platform's default
+                // XML contributors don't append schema/document-INFERRED names on top of ours —
+                // those pollute the list and, sorted above ours, defeat the alphabetical order.
+                // Registered order="first" (plugin.xml) so ours runs before them and this bites.
+                // Guarded to Cursorial files by the early returns above; foreign XML is untouched.
+                result.stopHere()
             }
         })
     }

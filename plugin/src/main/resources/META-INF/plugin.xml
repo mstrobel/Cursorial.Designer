@@ -111,9 +111,9 @@
         <!-- Registered for XML too: PSI LEAVES carry the XML token language (dialect files share
              XML's token types), and caret-language consumers (completion, docs) look up by the
              leaf. Both implementations gate per file, so foreign XML documents are untouched. -->
-        <completion.contributor language="XML"
+        <completion.contributor language="XML" order="first"
                                 implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
-        <completion.contributor language="CursorialXaml"
+        <completion.contributor language="CursorialXaml" order="first"
                                 implementationClass="dev.cursorial.designer.language.CursorialXamlCompletionContributor" />
         <!-- Tag auto-closing for files without XML PSI (none, since the overrider); the handler
              stands down when the platform's XML typed handlers already serve the file. -->
