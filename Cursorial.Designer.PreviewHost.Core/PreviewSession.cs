@@ -276,7 +276,8 @@ internal sealed class PreviewSession : IDisposable
                 Definition(definition);
                 break;
             case SetThemeCommand theme:
-                ApplyTheme(Host(command).Application, theme.ThemeBase, theme.ColorTier);
+                ApplyTheme(Host(command).Application, theme.ThemeBase);
+                ApplyColorTier(Host(command).Application, theme.ColorTier);
                 SettleAndEmitFrame();
                 break;
             case SetAnimationsCommand setAnimations:
@@ -341,6 +342,14 @@ internal sealed class PreviewSession : IDisposable
             });
         }
 
+        // The color tier rides on the CAPABILITIES (the gallery's OnCapabilitiesChanged pattern), never
+        // on RequestedColorTier — the requested variant takes precedence over the negotiated one in the
+        // theme, so setting it would diverge the theme from the render/composite depth. Bake the initial
+        // tier into the negotiated caps so the renderer, compositor, and theme all negotiate at that depth
+        // from the start; live tier changes go through OnCapabilitiesChanged (see ApplyColorTier).
+        if (TryMapColorTier(command.ColorTier, out var initialDepth))
+            capabilities = WithColorDepth(capabilities, initialDepth);
+
         _host = UIHeadlessHost.Create(new UIHeadlessHostOptions
         {
             Capabilities = capabilities,
@@ -368,15 +377,16 @@ internal sealed class PreviewSession : IDisposable
             AnimationScheduler.Current.AnimationsEnabled = false;
 
         // The wire carries what the profiled terminal could actually show, not the pre-quantization
-        // intent — an ansi16 preview must look like ansi16.
-        _quantizer = new StyleQuantizer(_host.Application.Capabilities.Output);
+        // intent — an ansi16 preview must look like ansi16. From the EFFECTIVE caps so the baked-in
+        // color tier (and any overrides) are reflected.
+        _quantizer = new StyleQuantizer(_host.Application.EffectiveCapabilities.Output);
 
         // First-party suites (Bars, Dialogs) are registered in the static ctor — the language
         // service needs them without any initialize. KeyTips ride the Alt gate the plugin
         // already forwards.
         _host.Application.EnableKeyTips();
 
-        ApplyTheme(_host.Application, command.ThemeBase, command.ColorTier);
+        ApplyTheme(_host.Application, command.ThemeBase); // the tier is already baked into the caps above
 
         _container = new Border();
         _container.SetResourceReference(Border.BackgroundProperty, ThemeKeys.ElevationDesktop);
@@ -1201,7 +1211,9 @@ internal sealed class PreviewSession : IDisposable
         return known;
     }
 
-    private void ApplyTheme(UIApplication application, string? themeBase, string? colorTier)
+    /// <summary>Applies the theme BASE (dark/light) — an intentional preview override via RequestedThemeBase.
+    /// The color tier is deliberately NOT set here; it rides the capabilities (see <see cref="ApplyColorTier"/>).</summary>
+    private void ApplyTheme(UIApplication application, string? themeBase)
     {
         switch (themeBase?.ToLowerInvariant())
         {
@@ -1217,28 +1229,48 @@ internal sealed class PreviewSession : IDisposable
                 _emit(new ErrorEvent { Message = $"Unknown theme base '{themeBase}' (expected 'dark' or 'light')." });
                 break;
         }
+    }
 
+    /// <summary>
+    /// Applies a LIVE color-tier change by mutating the negotiated capabilities' color depth and
+    /// re-dispatching — the gallery's pattern. <c>OnCapabilitiesChanged</c> applies overrides and forwards
+    /// the effective caps to the renderer, compositor, WindowManager, and the negotiated theme variant, so
+    /// the tier is forced everywhere (charts quantize, backdrops composite opaque) rather than only re-themed.
+    /// RequestedColorTier is avoided on purpose — the requested variant outranks the negotiated one in the
+    /// theme, which would diverge the theme from the render depth. The previewer's own frame quantizer is
+    /// rebuilt from the new effective caps so what it paints matches.
+    /// </summary>
+    private void ApplyColorTier(UIApplication application, string? colorTier)
+    {
+        if (!TryMapColorTier(colorTier, out var depth))
+            return;
+
+        application.OnCapabilitiesChanged(WithColorDepth(application.Capabilities, depth));
+        _quantizer = new StyleQuantizer(application.EffectiveCapabilities.Output);
+    }
+
+    /// <summary>Maps a color-tier name to a <see cref="ColorDepth"/>; false for null/auto (no change) or unknown (reports it).</summary>
+    private bool TryMapColorTier(string? colorTier, out ColorDepth depth)
+    {
         switch (colorTier?.ToLowerInvariant())
         {
-            case "truecolor":
-                application.RequestedColorTier = ColorDepth.Truecolor;
-                break;
-            case "ansi256":
-                application.RequestedColorTier = ColorDepth.Ansi256;
-                break;
-            case "ansi16":
-                application.RequestedColorTier = ColorDepth.Ansi16;
-                break;
-            case "nocolor":
-                application.RequestedColorTier = ColorDepth.NoColor;
-                break;
+            case "truecolor": depth = ColorDepth.Truecolor; return true;
+            case "ansi256":   depth = ColorDepth.Ansi256;   return true;
+            case "ansi16":    depth = ColorDepth.Ansi16;    return true;
+            case "nocolor":   depth = ColorDepth.NoColor;   return true;
             case null:
-                break;
+                depth = default;
+                return false;
             default:
                 _emit(new ErrorEvent { Message = $"Unknown color tier '{colorTier}'." });
-                break;
+                depth = default;
+                return false;
         }
     }
+
+    /// <summary>The capabilities with only the output color DEPTH replaced — the tier lever, profile otherwise intact.</summary>
+    private static Cursorial.Terminal.TerminalCapabilities WithColorDepth(Cursorial.Terminal.TerminalCapabilities caps, ColorDepth depth)
+        => caps with { Output = caps.Output with { Color = caps.Output.Color with { Depth = depth } } };
 
     // ───────────────────────────── frames ─────────────────────────────
 
