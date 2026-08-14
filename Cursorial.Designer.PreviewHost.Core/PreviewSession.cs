@@ -1268,6 +1268,16 @@ internal sealed class PreviewSession : IDisposable
         if (host.RunUntilIdle(maxFrames: 20))
             return;
 
+        // Play mode owns the clock through advanceTime — Settle must NOT independently advance virtual
+        // time here. A perpetual animation never idles, so the time-advance loop below would step it
+        // forward on EVERY settle-triggering interaction (a hover, a resize, a reload), making the
+        // animation appear to run even when the play toggle is off (its enabled flag having outlived
+        // the timer across a restart/tier/profile churn). Return at the fast-path cap; the play timer
+        // is the sole source of motion. With animations disabled this branch is unreached anyway (the
+        // content idles), so the design-surface timer/transition settle below is unchanged.
+        if (AnimationScheduler.Current.AnimationsEnabled)
+            return;
+
         // Something is waiting on the frozen clock — a tooltip/repeat timer, a theme transition.
         // Advance virtual time in frame-interval steps (bounded at ~5 s virtual, AND by the
         // wall-clock budget) so the preview shows the settled end state instead of freezing at

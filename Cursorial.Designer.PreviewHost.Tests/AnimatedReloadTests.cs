@@ -278,6 +278,26 @@ public class PlayModeAnimationTests : IDisposable
     }
 
     [Fact]
+    public void A_settle_triggering_interaction_does_not_advance_the_animation_without_a_tick()
+    {
+        // The "animations run while the play toggle is off" report: with animations enabled but no
+        // advanceTime, a settle-triggering interaction (Mike's repro: hovering; here a resize) must NOT
+        // step a perpetual animation. Settle no longer self-advances virtual time in play mode — only
+        // the play timer's advanceTime supplies motion — so the animation cannot creep on interaction
+        // if the enabled flag ever outlives the timer across a restart.
+        _session.Execute(new InitializeCommand { ProtocolVersion = 1, Columns = 80, Rows = 24 });
+        _session.Execute(new SetAnimationsCommand { Enabled = true });
+        Load(AnimatedReloadTests.Document(" "), id: 1);
+        _session.Execute(new AdvanceTimeCommand { Milliseconds = 250 }); // one tick → the marquee is mid-motion
+        var phase = AnimatedShimmerProbe.LastBrush!.Phase;
+        Assert.NotEqual(0.0, phase);
+
+        // A resize settles the surface but streams NO time; the animation must hold its phase.
+        _session.Execute(new ResizeCommand { Columns = 80, Rows = 25 });
+        Assert.Equal(phase, AnimatedShimmerProbe.LastBrush!.Phase);
+    }
+
+    [Fact]
     public void SetAnimations_before_initialize_is_dropped_not_fatal()
     {
         _session.Execute(new SetAnimationsCommand { Enabled = true });
