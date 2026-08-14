@@ -98,7 +98,7 @@ internal static class FrameSerializer
         {
             var info = entry.Fragment switch
             {
-                SizedTextFragment sized => SizedTextFragmentInfo(position, entry, sized, quantizer, lightBase),
+                SizedTextFragment sized => SizedTextFragmentInfo(position, buffer, sized, quantizer, lightBase),
                 KittyImageFragment kitty => ImageFragmentInfo(position, kitty.GetSize(), kitty.Image),
                 ITerm2ImageFragment iterm => ImageFragmentInfo(position, iterm.GetSize(), iterm.Image),
                 SixelFragment sixel => SixelFragmentInfo(position, sixel.GetSize()),
@@ -115,21 +115,28 @@ internal static class FrameSerializer
     }
 
     private static FragmentInfo SizedTextFragmentInfo(
-        (int Column, int Row) position, in CellBuffer.FragmentEntry entry, SizedTextFragment sized, StyleQuantizer? quantizer, bool lightBase)
+        (int Column, int Row) position, CellBuffer buffer, SizedTextFragment sized, StyleQuantizer? quantizer, bool lightBase)
     {
         var size = sized.GetSize();
         var sizing = sized.Sizing;
 
-        // The region's full SGR — background backdrop, glyph foreground, AND text attributes
-        // (italic/bold) — lives in the ANCHOR cell's style, exactly as FrameRenderer emits it; the
-        // fragment's own Style composes over it. Start from the anchor and apply the override's
-        // concrete colour channels, unioning the attribute flags so italic on either side survives.
+        // The BACKDROP is the background of the top-left CELL under the fragment — exactly what the
+        // FrameRenderer hands the fragment as its anchor cell style (the panel showing through). Only
+        // exact for a SOLID backdrop — a single cell can't carry a gradient — which mirrors the
+        // framework's own limitation. The glyph FOREGROUND and text ATTRIBUTES (italic/bold) come from
+        // the fragment's own style, composed on top; its own background is honoured only when it is a
+        // paintable (opaque) colour, so a transparent/default fragment background defers to the panel
+        // (a transparent backdrop escaping as opaque black is the fragment analogue of task #14).
+        var backdrop = position.Column >= 0 && position.Row >= 0
+                       && position.Column < buffer.Columns && position.Row < buffer.Rows
+            ? buffer[position.Column, position.Row].Style
+            : default;
+
         var over = sized.Style;
-        var resolved = entry.AnchorStyle
-                            .WithAttributes(entry.AnchorStyle.Attributes | over.Attributes);
+        var resolved = backdrop.WithAttributes(backdrop.Attributes | over.Attributes);
         if (!over.Foreground.IsDefault)
             resolved = resolved.WithForeground(over.Foreground);
-        if (!over.Background.IsDefault)
+        if (over.Background is { Kind: not ColorKind.Default } ownBg && ownBg.IsOpaque)
             resolved = resolved.WithBackground(over.Background);
 
         var style = quantizer?.Quantize(resolved) ?? resolved;
@@ -361,15 +368,18 @@ internal static class FrameSerializer
     }
 
     /// <summary>
-    /// <c>#RRGGBB</c> for concrete colors, <see langword="null"/> for the terminal-default color
-    /// (the viewer supplies its own default fg/bg). Palette entries resolve through the standard
-    /// xterm-256 palette; alpha is dropped — cells arrive composited.
+    /// <c>#RRGGBB</c> for concrete colors, <see langword="null"/> for the terminal-default color OR a
+    /// FULLY-TRANSPARENT one (the viewer supplies its own default / lets what's underneath show). Cells
+    /// arrive composited so alpha is normally gone, but a FRAGMENT can carry a transparent backdrop to
+    /// this point (it defers to the panel) — emitting it as alpha-stripped <c>#000000</c> painted an
+    /// opaque black block (task #14's shape). Palette entries resolve through the standard xterm-256
+    /// palette; any residual partial alpha is dropped.
     /// </summary>
     private static string? ColorHex(in Color color, bool lightBase) => color.Kind switch
     {
         ColorKind.Default => null,
         ColorKind.Palette => XtermPalette.ToHex(color.PaletteIndex, lightBase),
-        _ => $"#{color.Red:x2}{color.Green:x2}{color.Blue:x2}",
+        _ => color.Alpha == 0 ? null : $"#{color.Red:x2}{color.Green:x2}{color.Blue:x2}",
     };
 
     private static string ShapeName(CursorShape shape) => shape switch

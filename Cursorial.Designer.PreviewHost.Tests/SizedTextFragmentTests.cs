@@ -64,6 +64,24 @@ public class SizedTextFragmentTests : IDisposable
     }
 
     [Fact]
+    public void Sized_text_backdrop_is_the_top_left_cell_background_not_opaque_black()
+    {
+        // The backdrop comes from the top-left cell under the fragment (the panel showing through) — like
+        // the FrameRenderer's anchor cell style — NOT the fragment's own transparent background, which must
+        // not paint an opaque black block (the previewer analogue of #14: transparent escaping as black).
+        _session.Execute(new InitializeCommand { ProtocolVersion = 1, Columns = 40, Rows = 12, Capabilities = "kitty-sizing" });
+        _session.Execute(new LoadXamlCommand
+        {
+            Id = 1,
+            Xaml = $"<Border {Xmlns} {ProbeNs} Background=\"#0000FF\"><t:SizedTextProbe/></Border>",
+            Assemblies = [typeof(SizedTextProbe).Assembly.Location],
+        });
+
+        var fragment = Assert.Single(_events.OfType<FrameEvent>().Last().Fragments!);
+        Assert.Equal("#0000ff", fragment.Style!.Bg); // the blue panel backdrop, not #000000
+    }
+
+    [Fact]
     public void Clearing_a_fragment_emits_an_empty_set_not_null()
     {
         _session.Execute(new InitializeCommand { ProtocolVersion = 1, Columns = 40, Rows = 12, Capabilities = "kitty-sizing" });
