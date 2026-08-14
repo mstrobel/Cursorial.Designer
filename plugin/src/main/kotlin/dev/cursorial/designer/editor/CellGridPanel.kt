@@ -252,6 +252,7 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
                     lines = info.lines.orEmpty(),
                     fg = parseColor(info.style?.fg),
                     bg = parseColor(info.style?.bg),
+                    attrs = StyleAttrs.of(info.style?.attrs),
                 )
                 else -> { // "image"
                     val decoded = decodeImage(info)
@@ -398,8 +399,16 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
             val h = frag.rows * ch
 
             if (frag.image != null || frag.placeholder != null) {
-                if (frag.image != null) {
-                    g2.drawImage(frag.image, x, y, w, h, null)
+                val img = frag.image
+                if (img != null) {
+                    // Fit WITHIN the footprint preserving the image's pixel aspect ratio, centered —
+                    // the footprint's aspect is cell-derived (cells aren't square, and the IDE's cell
+                    // pixel size differs from the terminal's), so stretching to it distorts. Mirrors
+                    // Kitty's aspect-preserving placement.
+                    val scale = minOf(w.toDouble() / img.width, h.toDouble() / img.height)
+                    val dw = (img.width * scale).toInt().coerceAtLeast(1)
+                    val dh = (img.height * scale).toInt().coerceAtLeast(1)
+                    g2.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, null)
                 } else {
                     // Undecodable (Sixel / decode failure): a labeled placeholder at the footprint.
                     g2.color = blend(defaultFg, if (lightBase) LIGHT_DEFAULT_BG else DARK_DEFAULT_BG)
@@ -410,15 +419,26 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
                 continue
             }
 
-            // Scaled text (OSC 66): draw each line at `scale`× the cell font; one line per scaled row.
+            // Scaled text (OSC 66): draw each line at `scale`× the cell font, honoring bold/italic and
+            // the fg/bg the anchor style carried; one line per scaled row.
             frag.bg?.let { g2.color = it; g2.fillRect(x, y, w, h) }
-            val scaledFont = metrics.plain.deriveFont(metrics.plain.size2D * frag.scale)
+            val scaledFont = metrics.font(frag.attrs.bold, frag.attrs.italic)
+                .deriveFont(metrics.plain.size2D * frag.scale)
             g2.font = scaledFont
             g2.color = frag.fg ?: defaultFg
-            val scaledAscent = g2.getFontMetrics(scaledFont).ascent
+            val fm = g2.getFontMetrics(scaledFont)
             val lineHeight = ch * frag.scale
-            for ((i, line) in frag.lines.withIndex())
-                g2.drawString(line, x, y + i * lineHeight + scaledAscent)
+            for ((i, line) in frag.lines.withIndex()) {
+                val baseY = y + i * lineHeight + fm.ascent
+                g2.drawString(line, x, baseY)
+                val lineWidth = fm.stringWidth(line)
+                if (frag.attrs.underline)
+                    g2.drawLine(x, baseY + frag.scale, x + lineWidth - 1, baseY + frag.scale)
+                if (frag.attrs.strikethrough) {
+                    val strikeY = baseY - fm.ascent / 3
+                    g2.drawLine(x, strikeY, x + lineWidth - 1, strikeY)
+                }
+            }
         }
     }
 
@@ -584,6 +604,7 @@ class CellGridPanel : JComponent(), javax.swing.Scrollable {
         val lines: List<String> = emptyList(),
         val fg: Color? = null,
         val bg: Color? = null,
+        val attrs: StyleAttrs = StyleAttrs.NONE,
         val image: BufferedImage? = null,
         val placeholder: String? = null,
     )

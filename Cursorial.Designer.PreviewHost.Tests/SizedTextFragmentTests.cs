@@ -11,6 +11,7 @@ public sealed class SizedTextProbe : TextBlock
     public SizedTextProbe()
     {
         Text = "BIG";
+        TextStyle = TextStyle.Italic; // exercises attribute composition through the anchor style
         TextElement.SetSizing(this, TextSizing.Double);
     }
 }
@@ -58,6 +59,31 @@ public class SizedTextFragmentTests : IDisposable
         Assert.Equal(2, fragment.Rows);                  // 1 line × scale 2
         Assert.Equal(6, fragment.Columns);               // 3 cells × scale 2
         Assert.NotNull(fragment.Style);
+        // Attributes flow: the italic composed through the anchor style reaches the fragment.
+        Assert.Contains("italic", fragment.Style!.Attrs ?? []);
+    }
+
+    [Fact]
+    public void Clearing_a_fragment_emits_an_empty_set_not_null()
+    {
+        _session.Execute(new InitializeCommand { ProtocolVersion = 1, Columns = 40, Rows = 12, Capabilities = "kitty-sizing" });
+
+        // Frame 1: a sized-text fragment on screen.
+        _session.Execute(new LoadXamlCommand
+        {
+            Id = 1,
+            Xaml = $"<StackPanel {Xmlns} {ProbeNs}><t:SizedTextProbe/></StackPanel>",
+            Assemblies = [typeof(SizedTextProbe).Assembly.Location],
+        });
+        Assert.Single(_events.OfType<FrameEvent>().Last().Fragments!);
+
+        // Frame 2: plain content — the fragment is gone. The delta must carry an EMPTY set (a clear),
+        // not null (which means "unchanged, keep the prior fragment" — the stuck-image bug).
+        var before = _events.Count;
+        _session.Execute(new LoadXamlCommand { Id = 2, Xaml = $"<StackPanel {Xmlns}><TextBlock Text=\"plain\"/></StackPanel>" });
+        var frame = _events.Skip(before).OfType<FrameEvent>().Last();
+        Assert.NotNull(frame.Fragments);
+        Assert.Empty(frame.Fragments!);
     }
 
     [Fact]

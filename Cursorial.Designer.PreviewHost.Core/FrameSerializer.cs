@@ -98,7 +98,7 @@ internal static class FrameSerializer
         {
             var info = entry.Fragment switch
             {
-                SizedTextFragment sized => SizedTextFragmentInfo(position, sized, quantizer, lightBase),
+                SizedTextFragment sized => SizedTextFragmentInfo(position, entry, sized, quantizer, lightBase),
                 KittyImageFragment kitty => ImageFragmentInfo(position, kitty.GetSize(), kitty.Image),
                 ITerm2ImageFragment iterm => ImageFragmentInfo(position, iterm.GetSize(), iterm.Image),
                 SixelFragment sixel => SixelFragmentInfo(position, sixel.GetSize()),
@@ -114,11 +114,25 @@ internal static class FrameSerializer
         return fragments;
     }
 
-    private static FragmentInfo SizedTextFragmentInfo((int Column, int Row) position, SizedTextFragment sized, StyleQuantizer? quantizer, bool lightBase)
+    private static FragmentInfo SizedTextFragmentInfo(
+        (int Column, int Row) position, in CellBuffer.FragmentEntry entry, SizedTextFragment sized, StyleQuantizer? quantizer, bool lightBase)
     {
         var size = sized.GetSize();
         var sizing = sized.Sizing;
-        var style = quantizer?.Quantize(sized.Style) ?? sized.Style;
+
+        // The region's full SGR — background backdrop, glyph foreground, AND text attributes
+        // (italic/bold) — lives in the ANCHOR cell's style, exactly as FrameRenderer emits it; the
+        // fragment's own Style composes over it. Start from the anchor and apply the override's
+        // concrete colour channels, unioning the attribute flags so italic on either side survives.
+        var over = sized.Style;
+        var resolved = entry.AnchorStyle
+                            .WithAttributes(entry.AnchorStyle.Attributes | over.Attributes);
+        if (!over.Foreground.IsDefault)
+            resolved = resolved.WithForeground(over.Foreground);
+        if (!over.Background.IsDefault)
+            resolved = resolved.WithBackground(over.Background);
+
+        var style = quantizer?.Quantize(resolved) ?? resolved;
         return new FragmentInfo
         {
             Kind = "sizedText",
@@ -222,8 +236,10 @@ internal static class FrameSerializer
             Delta = true,
             Changed = changed,
             // Carried only when the set changed: null tells the client to keep its prior fragments,
-            // so a static image is not re-serialized on every play-mode tick.
-            Fragments = fragmentsChanged ? next.Fragments : null,
+            // so a static image is not re-serialized on every play-mode tick. When the set changed to
+            // EMPTY (the last fragment was removed), carry an explicit empty list — NOT null, which
+            // would read as "unchanged" and leave a removed image stuck on screen.
+            Fragments = fragmentsChanged ? (next.Fragments ?? []) : null,
         };
     }
 
