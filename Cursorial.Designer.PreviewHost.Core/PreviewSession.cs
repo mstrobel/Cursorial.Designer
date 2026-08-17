@@ -1156,6 +1156,10 @@ internal sealed class PreviewSession : IDisposable
 
         string classes = string.Join(", ",
                                      element.Classes.Select(c => c.StartsWith('.') ? c : '.' + c)
+                                            .Concat(PseudoClassMapping.Snapshot()
+                                                                      .Where(m => m.OwnerType.IsInstanceOfType(element))
+                                                                      .SelectMany(m => m.PseudoClasses)
+                                                                      .Where(element.HasPseudoClass))
                                             .Concat(InteractionPseudoClasses.Names.Where(element.HasPseudoClass)));
         _emit(new PropertiesEvent
         {
