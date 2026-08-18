@@ -36,18 +36,37 @@ object UserAssemblyLocator {
             val csproj = directory.children.firstOrNull { !it.isDirectory && it.extension == "csproj" }
             if (csproj != null) {
                 val projectName = csproj.nameWithoutExtension
+                // The output file honors <AssemblyName> when the csproj declares one (e.g. project
+                // Cursorial.CLI building `curio.dll`); fall back to the project-name convention.
+                val assemblyName = runCatching {
+                    Regex("<AssemblyName>\\s*([^<\\s][^<]*?)\\s*</AssemblyName>")
+                        .find(String(csproj.contentsToByteArray(), Charsets.UTF_8))
+                        ?.groupValues?.get(1)
+                }.getOrNull()
+                val candidates = listOfNotNull(assemblyName, projectName).distinct()
+
                 val newest = listOf("Debug", "Release")
                     .flatMap { configuration ->
                         File(directory!!.path, "bin/$configuration").listFiles()?.toList().orEmpty()
                     }
                     .filter(File::isDirectory)
-                    .mapNotNull { tfmDir -> File(tfmDir, "$projectName.dll").takeIf(File::isFile) }
+                    .flatMap { tfmDir ->
+                        // A PublishAot/RID-specific project builds one level deeper (bin/<cfg>/<tfm>/<rid>/);
+                        // scan the tfm directory AND its RID subdirectories. `ref/` holds implementation-less
+                        // reference assemblies — never loadable content.
+                        val searchDirs = listOf(tfmDir) +
+                            tfmDir.listFiles().orEmpty().filter { it.isDirectory && it.name != "ref" }
+                        searchDirs.mapNotNull { dir ->
+                            candidates.firstNotNullOfOrNull { name -> File(dir, "$name.dll").takeIf(File::isFile) }
+                        }
+                    }
                     .maxByOrNull(File::lastModified)
 
                 return if (newest != null) {
                     Result(assemblies = listOf(newest.absolutePath))
                 } else {
-                    Result(problem = "Project '$projectName' has no built output — build it to preview its types.")
+                    Result(problem = "Project '$projectName' has no built output " +
+                        "(looked for ${candidates.joinToString(" / ") { "$it.dll" }}) — build it to preview its types.")
                 }
             }
             directory = directory.parent

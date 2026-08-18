@@ -134,6 +134,11 @@ internal sealed class PreviewSession : IDisposable
 
     public PreviewSession(Action<PreviewEvent> emit, bool keepAnimationsEnabled = false)
     {
+        // The ambient designer switch, set before any document loads (activators are built once per
+        // type): design instances may be materialized WITHOUT running constructors — see
+        // XamlDesignerContext. Idempotent across sessions.
+        XamlDesignerContext.IsDesignMode = true;
+
         _emit = emit;
         _keepAnimationsEnabled = keepAnimationsEnabled;
     }
@@ -402,6 +407,92 @@ internal sealed class PreviewSession : IDisposable
 
     // ───────────────────────────── XAML ─────────────────────────────
 
+    private bool _reportedFrameworkIdentity;
+
+    // A PREFIXED DataContext (attribute d:DataContext=, element <d:DataContext>, or property-element
+    // <d:Owner.DataContext>) — an unprefixed runtime <Owner.DataContext> never matches, so ordinary
+    // documents that merely declare a design xmlns don't trip the placement hint.
+    private static readonly System.Text.RegularExpressions.Regex DesignDataContextPattern =
+        new(@"[A-Za-z_][A-Za-z0-9_]*:([A-Za-z_][A-Za-z0-9_.]*\.)?DataContext[\s>=/]",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // XamlDesignInfo.DataContextContent, reflected: the LOADED Frontend may be an older build without
+    // the element-form feature (the version-gated bundled copy), and a DIRECT property access would
+    // fail the containing method's JIT with MissingMethodException before a single line ran. All
+    // access goes through this probe so the host stays functional — and can SAY so — on old frameworks.
+    private static readonly System.Reflection.PropertyInfo? DataContextContentProperty =
+        typeof(XamlDesignInfo).GetProperty("DataContextContent");
+
+    /// <summary>
+    /// Design-time diagnostics appended to every load's <see cref="DiagnosticsEvent"/>:
+    /// (1) once per session, the identity of the LOADED Cursorial.UI.Xaml.Frontend (version + path +
+    /// whether the &lt;d:DataContext&gt; element form exists — the stale-binary tell); (2) misses
+    /// inside the design fragment, which parse CollectAll on the DETACHED fragment document and would
+    /// otherwise be invisible; (3) the classic placement mistake — a design DataContext declared in
+    /// the text but captured by neither form (it must sit on / directly under the ROOT element).
+    /// </summary>
+    private void AppendDesignDiagnostics(string xaml, XamlDocument document, List<DiagnosticInfo> diagnostics)
+    {
+        // All design diagnostics are scoped to documents that DECLARE a design namespace: ordinary
+        // documents (and the sessions the test suite drives) see an untouched diagnostics list.
+        var usesDesignNamespace =
+            xaml.Contains(XmlnsNamespaces.DesignTime, StringComparison.Ordinal) ||
+            xaml.Contains(XmlnsNamespaces.DesignTimeCursorial, StringComparison.Ordinal);
+        if (!usesDesignNamespace)
+            return;
+
+        if (!_reportedFrameworkIdentity)
+        {
+            // Once per session, on the first design-using document: which Frontend is actually LOADED
+            // (the ReadyEvent's FrameworkVersion is metadata-read before loading) and whether it has
+            // the <d:DataContext> element form — the stale-packaged-plugin tell.
+            _reportedFrameworkIdentity = true;
+            var frontend = typeof(XamlDesignInfo).Assembly.GetName();
+            var location = typeof(XamlDesignInfo).Assembly.Location;
+            var elementForm = DataContextContentProperty is not null;
+            diagnostics.Add(new DiagnosticInfo
+            {
+                Code = "CURD001",
+                Message = $"Preview framework: {frontend.Name} {frontend.Version} @ {location} — " +
+                          $"d:DataContext element form {(elementForm ? "supported" : "NOT supported (stale framework build)")}.",
+                Line = 1,
+                Column = 1,
+                Severity = "info",
+            });
+        }
+
+        var design = document.DesignInfo;
+        if (design is not null && DataContextContentProperty?.GetValue(design) is XamlDocument fragment)
+        {
+            // Fragment diagnostics are design-only: surface errors as warnings so they inform without
+            // blocking the preview (the main document may be perfectly loadable).
+            foreach (var d in ToDiagnosticInfos(fragment.Diagnostics))
+            {
+                diagnostics.Add(new DiagnosticInfo
+                {
+                    Code = d.Code,
+                    Message = $"d:DataContext: {d.Message}",
+                    Line = d.Line,
+                    Column = d.Column,
+                    Severity = d.Severity == "error" ? "warning" : d.Severity,
+                });
+            }
+        }
+        else if (design?.DataContextType is null && DesignDataContextPattern.IsMatch(xaml))
+        {
+            diagnostics.Add(new DiagnosticInfo
+            {
+                Code = "CURD002",
+                Message = "A design-time DataContext appears in the document but was not captured: the " +
+                          "d: attribute belongs ON the root element, and the element form " +
+                          "(<d:DataContext> / <d:Owner.DataContext>) must be a DIRECT child of the root.",
+                Line = 1,
+                Column = 1,
+                Severity = "info",
+            });
+        }
+    }
+
     private void LoadXaml(LoadXamlCommand command)
     {
         var host = Host(command);
@@ -411,6 +502,7 @@ internal sealed class PreviewSession : IDisposable
         var document = _loader.Parse(command.Xaml, sourceUri);
 
         var diagnostics = ToDiagnosticInfos(document.Diagnostics);
+        AppendDesignDiagnostics(command.Xaml, document, diagnostics);
 
         if (diagnostics.Any(d => d.Severity == "error"))
         {
@@ -574,6 +666,27 @@ internal sealed class PreviewSession : IDisposable
         if (design.DesignHeight is { } height)
             element.SetValue(UIElement.HeightProperty, (int?)height);
 
+        // The ELEMENT form (<d:DataContext> / <d:Owner.DataContext>): a detached fragment document
+        // materialized through the ordinary loader — full design data, not just a type. It wins over
+        // the attribute form, matching the parser's precedence. Reflected access: see
+        // DataContextContentProperty — an old loaded Frontend must not fail this method's JIT.
+        if (DataContextContentProperty?.GetValue(design) is XamlDocument content)
+        {
+            try
+            {
+                element.SetValue(UIElement.DataContextProperty, _loader.Load(content, context: null));
+                return;
+            }
+            catch (Exception ex)
+            {
+                _emit(new ErrorEvent
+                {
+                    Message = "The <d:DataContext> design data threw while being instantiated.",
+                    Detail = ex.ToString(),
+                });
+            }
+        }
+
         if (design.DataContextType is { Activate: { } activate })
         {
             try
@@ -601,6 +714,60 @@ internal sealed class PreviewSession : IDisposable
     private static void RestoreHostProvider()
         => Cursorial.UI.Xaml.XamlLoaderOptions.DefaultMetadataProvider = HostMetadataProvider;
 
+    // User-project output directories, shared across sessions. The resolver installed below lets a
+    // document reference ANY user assembly by simple name (assembly=curio, assembly=MyApp.Controls)
+    // once one assembly from its output directory has been registered — user assemblies routinely
+    // carry names unrelated to Cursorial or even to their own csproj file name, and SDK builds copy
+    // every dependency beside the entry assembly.
+    private static readonly HashSet<string> UserAssemblyDirectories = new(StringComparer.Ordinal);
+    private static int _userResolverInstalled;
+
+    private static void RememberUserDirectory(string assemblyPath)
+    {
+        if (Path.GetDirectoryName(assemblyPath) is not { Length: > 0 } directory)
+            return;
+
+        lock (UserAssemblyDirectories)
+            UserAssemblyDirectories.Add(directory);
+
+        if (Interlocked.Exchange(ref _userResolverInstalled, 1) != 0)
+            return;
+
+        XamlSchemaContext.Default.AssemblyResolver = simpleName =>
+        {
+            // FRAMEWORK names stay with the host's own binds: resolving a USER copy of Cursorial.*
+            // here would re-split the framework identity the load-context discipline unifies. The
+            // guard is the DOT-qualified family (plus the bare root) — a user project named in the
+            // family's spirit (CursorialEdit, CursorialTools) flows through to the user-dir probe.
+            if (simpleName.Equals("Cursorial", StringComparison.OrdinalIgnoreCase) ||
+                simpleName.StartsWith("Cursorial.", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            string[] directories;
+            lock (UserAssemblyDirectories)
+                directories = [.. UserAssemblyDirectories];
+
+            var context = AssemblyLoadContext.GetLoadContext(typeof(PreviewSession).Assembly)
+                ?? AssemblyLoadContext.Default;
+            foreach (var dir in directories)
+            {
+                var candidate = Path.Combine(dir, simpleName + ".dll");
+                if (!File.Exists(candidate))
+                    continue;
+                try
+                {
+                    return context.LoadFromAssemblyPath(candidate);
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or BadImageFormatException or FileLoadException)
+                {
+                    // fall through — the schema context's own Assembly.Load ladder still runs
+                }
+            }
+
+            return null;
+        };
+    }
+
     private void RegisterAssemblies(IReadOnlyList<string>? assemblies, long? replyTo)
     {
         if (assemblies is null)
@@ -621,7 +788,9 @@ internal sealed class PreviewSession : IDisposable
                 // harness that context IS the default context, so behavior there is unchanged.)
                 var context = AssemblyLoadContext.GetLoadContext(typeof(PreviewSession).Assembly)
                     ?? AssemblyLoadContext.Default;
-                XamlSchemaContext.Default.RegisterAssembly(context.LoadFromAssemblyPath(Path.GetFullPath(path)));
+                var fullPath = Path.GetFullPath(path);
+                XamlSchemaContext.Default.RegisterAssembly(context.LoadFromAssemblyPath(fullPath));
+                RememberUserDirectory(fullPath);
             }
             catch (Exception ex)
             {

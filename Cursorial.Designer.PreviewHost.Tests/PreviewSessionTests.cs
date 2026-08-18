@@ -880,7 +880,12 @@ public class PreviewSessionTests : IDisposable
         });
 
         var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
-        Assert.Empty(diagnostics.Items);
+
+        // A design-using document carries exactly one extra item: the once-per-session CURD001
+        // framework-identity info line (the stale-framework tell); nothing else.
+        var info = Assert.Single(diagnostics.Items);
+        Assert.Equal("CURD001", info.Code);
+        Assert.Equal("info", info.Severity);
 
         // d:DataContext constructed the viewmodel, so the binding renders real design data.
         Assert.Contains("Hello from design data", FrameText());
@@ -894,6 +899,32 @@ public class PreviewSessionTests : IDisposable
         Assert.Equal("StackPanel", root.ElementType);
         Assert.Equal(30, root.Bounds.Columns);
         Assert.Equal(5, root.Bounds.Rows);
+    }
+
+    [Fact]
+    public void Design_data_context_element_form_binds_design_data()
+    {
+        Initialize(columns: 60, rows: 16);
+        var ns = "clr-namespace:Cursorial.Designer.Tests.PreviewHost;assembly=Cursorial.Designer.PreviewHost.Tests";
+        _session.Execute(new LoadXamlCommand
+        {
+            Id = 41,
+            Xaml = $$"""
+                     <StackPanel {{Xmlns}}
+                                 xmlns:d="https://cursorial.dev/xaml/design"
+                                 xmlns:t="{{ns}}">
+                         <d:DataContext><t:DesignViewModel/></d:DataContext>
+                         <TextBlock Text="{Binding Greeting}"/>
+                     </StackPanel>
+                     """,
+            Assemblies = [typeof(DesignViewModel).Assembly.Location],
+        });
+
+        // The element-form fragment materialized through the ordinary loader and bound as the
+        // design DataContext; only info-severity design diagnostics ride along.
+        var diagnostics = Assert.IsType<DiagnosticsEvent>(Assert.Single(_events, e => e is DiagnosticsEvent));
+        Assert.All(diagnostics.Items, d => Assert.Equal("info", d.Severity));
+        Assert.Contains("Hello from design data", FrameText());
     }
 
     [Fact]
